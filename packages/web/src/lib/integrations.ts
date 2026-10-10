@@ -1,4 +1,4 @@
-import {IdCardIcon, MailIcon, type LucideIcon} from 'lucide-react';
+import {IdCardIcon, MailIcon, PlugIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	type Integration as CatalogIntegration,
@@ -14,6 +14,7 @@ export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLo
 
 const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	info: IdCardIcon,
+	'custom-mcp': PlugIcon,
 	email: MailIcon,
 	granola: {src: '/integrations/granola.png', fill: true},
 	notion: {src: '/integrations/notion.svg'},

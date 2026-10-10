@@ -2,6 +2,8 @@ import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
+
+mock.module('../utils/secret-crypto', () => ({decryptSecret: mock()}));
 import {findIntegration, type Integration} from '@proxy/integrations';
 
 const getAgent = mock();
@@ -14,7 +16,7 @@ mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
 const listConnections = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections}));
+mock.module('@proxy/db/connection', () => ({listConnections, getConnectionWithCredential: mock()}));
 
 const loadConnection = mock();
 

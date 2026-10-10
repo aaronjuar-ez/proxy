@@ -2,12 +2,24 @@ import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
 
+export const customMcpToolSchema = z.object({
+	name: z.string(),
+	title: z.string().optional(),
+	description: z.string().optional(),
+	actionId: z.string(),
+	inputSchema: z.record(z.string(), z.json()),
+	outputSchema: z.record(z.string(), z.json()).optional(),
+	annotations: z.record(z.string(), z.json()).optional(),
+});
+export const customMcpSchema = z.object({url: z.string(), tools: z.array(customMcpToolSchema)});
+
 export const connectionSchema = z.object({
 	id: z.string(),
 	integrationId: z.string(),
 	account: z.string(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
+	customMcp: customMcpSchema.optional(),
 });
 
 export const agentSchema = z.object({

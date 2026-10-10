@@ -73,7 +73,7 @@ export type Collection = {
 	commands?: Command[];
 };
 
-export type IntegrationId = 'info' | 'email' | 'granola' | 'notion' | 'linear';
+export type IntegrationId = 'info' | 'email' | 'granola' | 'notion' | 'linear' | 'custom-mcp';
 
 export type Integration = {
 	id: IntegrationId;

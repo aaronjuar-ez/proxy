@@ -4,8 +4,10 @@ import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 
 import {setConnectionDefaults} from '@/client/connections-client';
 import {finishOnboarding} from '@/client/me-client';
 import {AgentSetup} from '@/components/agent-setup';
+import {ConnectCustomMcpForm} from '@/components/connect-custom-mcp-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectionAccess} from '@/components/connection-access';
+import {CustomMcpUnavailable} from '@/components/custom-mcp-tools';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
@@ -18,7 +20,7 @@ import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
 // Step one is the agent; the rest are step two: the catalog, the mailbox form, and (on its own
 // page, `WelcomeConnectionPage`) a new connection's permissions.
-type Step = 'agent' | 'connections' | 'email';
+type Step = 'agent' | 'connections' | 'email' | 'custom-mcp';
 
 // The welcome flow, before the app: step one connects the person's agent, in the way that agent
 // takes (an MCP client adds the server and signs in; another is handed a login), step two their
@@ -60,6 +62,17 @@ export function WelcomePage({step}: {step: Step}) {
 					onDone={() => void finish()}
 				/>
 			)}
+			{step === 'custom-mcp' && (
+				<>
+					<StepHeading title="Connect an MCP server">
+						Discover tools, then grant each one on an agent’s page after setup.
+					</StepHeading>
+					<ConnectCustomMcpForm onConnected={() => navigate('/welcome/connections')} />
+					<Link to="/welcome/connections" className="text-sm underline">
+						Back
+					</Link>
+				</>
+			)}
 			{step === 'email' && (
 				<EmailStep onContinue={(connection) => navigate(`/welcome/connections/${connection.id}`)} />
 			)}
@@ -98,6 +111,24 @@ export function WelcomeConnectionPage() {
 		);
 	}
 
+	if (connection.integrationId === 'custom-mcp') {
+		return (
+			<Frame step={2}>
+				<SuccessLine>Connection added successfully</SuccessLine>
+				{connection.customMcpUnavailable ? (
+					<CustomMcpUnavailable />
+				) : (
+					<p className="text-sm text-muted-foreground">
+						All tools are blocked. Finish setup, then open an agent’s page to grant individual
+						tools.
+					</p>
+				)}
+				<Link to="/welcome/connections" className="text-sm underline">
+					Continue
+				</Link>
+			</Frame>
+		);
+	}
 	return (
 		<Frame step={2}>
 			<ConnectionStep
@@ -154,6 +185,7 @@ function ConnectionsStep({
 				connections={connections}
 				returnTo="welcome"
 				onConnectEmail={() => navigate('/welcome/connections/email')}
+				onConnectCustomMcp={() => navigate('/welcome/connections/custom-mcp')}
 			/>
 			<div className="flex justify-between gap-2">
 				<Button variant="outline" nativeButton={false} render={<Link to="/welcome" />}>

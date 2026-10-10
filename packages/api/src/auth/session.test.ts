@@ -117,6 +117,8 @@ describe('sanitizeCallbackUrl', () => {
 		expect(sanitizeCallbackUrl('')).toBeUndefined();
 		expect(sanitizeCallbackUrl('https://evil.com')).toBeUndefined();
 		expect(sanitizeCallbackUrl('//evil.com')).toBeUndefined();
+		expect(sanitizeCallbackUrl('/\n/evil.com')).toBeUndefined();
+		expect(sanitizeCallbackUrl('/\t/evil.com')).toBeUndefined();
 		expect(sanitizeCallbackUrl('/\\evil.com')).toBeUndefined();
 	});
 });

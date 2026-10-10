@@ -13,8 +13,27 @@ import {findIntegration, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
 // The connection's integration, or null for one the catalog no longer has.
-export function integrationOf(connection: {integrationId: string}): Integration | null {
-	return findIntegration(connection.integrationId) ?? null;
+export function integrationOf(connection: {
+	integrationId: string;
+	customMcp?: Connection['customMcp'];
+}): Integration | null {
+	const integration = findIntegration(connection.integrationId);
+	if (!integration) {
+		return null;
+	}
+	if (connection.integrationId !== 'custom-mcp') {
+		return integration;
+	}
+	return {
+		...integration,
+		actions: (connection.customMcp?.tools ?? []).map((tool) => ({
+			id: tool.actionId,
+			label: tool.title ? `${tool.title} (${tool.name})` : tool.name,
+			description: tool.description ?? 'Tool provided by this MCP server',
+			risk: 'high',
+			reachesOthers: true,
+		})),
+	};
 }
 
 // The integration's name, and the account too once the integration is connected more than once.
@@ -31,7 +50,7 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 
 // The actions an agent without settings of its own gets.
 export function defaultActions(connection: Connection): string[] {
-	return connection.defaults;
+	return connection.integrationId === 'custom-mcp' ? [] : connection.defaults;
 }
 
 // The agent's own settings for a connection, by action; the ones left out follow the default.
@@ -101,11 +120,11 @@ export function agentsWithAccess(agents: AgentLogin[], connection: Connection): 
 export function locateEntry(
 	connections: Connection[],
 	entry: AuditEntry,
-): {connection: Connection; collection: Collection} | null {
+): {connection: Connection; collection?: Collection} | null {
 	const connection = connections.find((candidate) => candidate.id === entry.connectionId);
 	const integration = connection && integrationOf(connection);
-	const collection = integration && findCollection(integration, entry.collectionId);
-	if (!connection || !collection) {
+	const collection = integration ? findCollection(integration, entry.collectionId) : undefined;
+	if (!connection) {
 		return null;
 	}
 	return {connection, collection};
@@ -131,6 +150,9 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 // "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
 // “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
 export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
+	if (entry.collectionId === 'tools') {
+		return `${entry.outcome === 'denied' ? 'Denied' : 'Authorized'} tool call: ${entry.action}`;
+	}
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	const denied = entry.outcome === 'denied';

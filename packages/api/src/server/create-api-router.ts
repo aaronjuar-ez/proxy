@@ -1,4 +1,5 @@
 import express from 'express';
+import {handleCreateCustomMcpRoute, handleGetCustomMcpRoute, handleRefreshCustomMcpRoute} from '../connections/custom-mcp/route';
 
 import {handleListActivityRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -17,6 +18,7 @@ import {
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
+import {handlePasswordLoginRoute} from '../auth/password';
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
@@ -46,6 +48,7 @@ export function createApiRouter(): express.Router {
 	// are top-level navigations (302 redirects); the magic-link send, sign-out and dev login are
 	// writes from the web app, so they take the `requireBrowserOrigin` CSRF guard.
 	router.get('/auth/methods', handleSignInMethodsRoute);
+	router.post('/auth/password', requireBrowserOrigin, wrapAsyncRoute('Password sign-in route', handlePasswordLoginRoute));
 	router.get('/auth/google', wrapAsyncRoute('Google OAuth start route', handleGoogleStartRoute));
 	router.get('/auth/google/callback', wrapAsyncRoute('Google OAuth callback route', handleGoogleCallbackRoute));
 	router.post('/auth/email', requireBrowserOrigin, wrapAsyncRoute('Email sign-in route', handleEmailSignInRoute));
@@ -67,6 +70,9 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
 	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
 	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
+	router.post('/api/connections/custom-mcp', withAuthResult('Connect custom MCP route', handleCreateCustomMcpRoute));
+	router.get('/api/connections/:connectionId/custom-mcp', withAuthResult('Get custom MCP route', handleGetCustomMcpRoute));
+	router.post('/api/connections/:connectionId/custom-mcp/refresh', withAuthResult('Refresh custom MCP route', handleRefreshCustomMcpRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));

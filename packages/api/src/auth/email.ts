@@ -78,6 +78,11 @@ function normalizeEmail(raw: string): string | null {
  * link (or logs it in dev). Errors carry the codes the login form maps to copy.
  */
 export async function handleEmailSignInRoute(req: Request, res: Response): Promise<void> {
+	if (env.AUTH_MODE === 'single-owner-password') {
+		res.status(404).json({error: 'not_found'});
+		return;
+	}
+
 	const config = getEmailAuthConfig();
 	if (!config) {
 		log.error('Email sign-in route called without complete email auth configuration');
@@ -148,6 +153,11 @@ export async function handleEmailSignInRoute(req: Request, res: Response): Promi
  * 3. No user → create one with `emailVerified` set, sign up.
  */
 export async function handleEmailVerifyRoute(req: Request, res: Response): Promise<void> {
+	if (env.AUTH_MODE === 'single-owner-password') {
+		res.status(404).json({error: 'not_found'});
+		return;
+	}
+
 	const config = getEmailAuthConfig();
 	if (!config) {
 		log.error('Email verify route called without complete email auth configuration');

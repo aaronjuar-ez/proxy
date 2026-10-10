@@ -13,7 +13,8 @@
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
-		"./user": "./src/user.ts"
+		"./user": "./src/user.ts",
+		"./owner-auth": "./src/owner-auth.ts"
 	},
 	"scripts": {
 		"test": "bun test",

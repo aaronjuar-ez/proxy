@@ -8,6 +8,7 @@ import {Checkbox} from '@proxy/ui/components/checkbox';
 import {cn} from '@proxy/ui/lib/utils';
 
 type Props = {
+	explicitOnly?: boolean;
 	actions: Action[];
 	// The actions agents get by default.
 	defaults: string[];
@@ -32,10 +33,11 @@ export function ConnectionAccess({
 	differing,
 	onChange,
 	onMakeDefault,
+	explicitOnly = false,
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
-	const isDefault = (id: string) => defaults.includes(id);
+	const isDefault = (id: string) => !explicitOnly && defaults.includes(id);
 	const isOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
 	const isOwn = (id: string) => own?.[id] !== undefined;
 	// On an agent's page, an action that matches the default follows it rather than being stored.
@@ -84,7 +86,7 @@ export function ConnectionAccess({
 						</label>
 						<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
-							{isOwn(action.id) && onMakeDefault && (
+							{isOwn(action.id) && onMakeDefault && !explicitOnly && (
 								<IconButton
 									label="Make this the default for every agent"
 									onClick={() => onMakeDefault(action.id, checked)}
@@ -93,7 +95,10 @@ export function ConnectionAccess({
 								</IconButton>
 							)}
 							{isOwn(action.id) && (
-								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
+								<IconButton
+									label={explicitOnly ? 'Revoke tool access' : 'Reset to default'}
+									onClick={() => onChange({[action.id]: null})}
+								>
 									<Undo2Icon />
 								</IconButton>
 							)}

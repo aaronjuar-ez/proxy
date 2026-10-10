@@ -63,7 +63,8 @@ function getOAuthConfig(): OAuthConfig | null {
 
 /** `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only those set up. */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null});
+	const password = env.AUTH_MODE === 'single-owner-password';
+	res.json({google: !password && getOAuthConfig() !== null, password, email: !password, dev: !password && env.NODE_ENV === 'development'});
 }
 
 const statePayloadSchema = z.object({
@@ -127,6 +128,11 @@ function decodeJson<T>(base64url: string, schema: z.ZodType<T>): T | null {
  * sanitized callbackUrl in a short-lived httpOnly cookie and 302s to Google's consent screen.
  */
 export async function handleGoogleStartRoute(req: Request, res: Response): Promise<void> {
+	if (env.AUTH_MODE === 'single-owner-password') {
+		res.status(404).json({error: 'not_found'});
+		return;
+	}
+
 	const config = getOAuthConfig();
 	if (!config) {
 		log.error('Google OAuth start route called without complete OAuth configuration');
@@ -224,6 +230,11 @@ function decodeIdTokenProfile(idToken: string) {
  * 3. Otherwise sign up: create the user and their Google account.
  */
 export async function handleGoogleCallbackRoute(req: Request, res: Response): Promise<void> {
+	if (env.AUTH_MODE === 'single-owner-password') {
+		res.status(404).json({error: 'not_found'});
+		return;
+	}
+
 	const config = getOAuthConfig();
 	if (!config) {
 		log.error('Google OAuth callback route called without complete OAuth configuration');

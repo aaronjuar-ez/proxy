@@ -5,6 +5,7 @@ import {deleteConnection, setConnectionDefaults} from '@/client/connections-clie
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
+import {CustomMcpTools} from '@/components/custom-mcp-tools';
 import {ConnectionAccess} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
@@ -72,21 +73,31 @@ export function ConnectionPage() {
 					</p>
 				)}
 				<Section title="Permissions">
-					<ConnectionAccess
-						actions={integration.actions}
-						defaults={defaultActions(connection)}
-						differing={differingAgents(agents, connection.id)}
-						onChange={async (actions) => {
-							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
-							setError(result.isErr() ? describeFetchError(result.error) : null);
-							await revalidator.revalidate();
-						}}
-					/>
+					{connection.integrationId === 'custom-mcp' ? (
+						<CustomMcpTools connection={connection} />
+					) : (
+						<ConnectionAccess
+							actions={integration.actions}
+							defaults={defaultActions(connection)}
+							differing={differingAgents(agents, connection.id)}
+							onChange={async (actions) => {
+								const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
+								setError(result.isErr() ? describeFetchError(result.error) : null);
+								await revalidator.revalidate();
+							}}
+						/>
+					)}
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
 					<RowList>
-						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
+						{withAccess.length === 0 && (
+							<EmptyRows>
+								{connection.customMcpUnavailable
+									? 'Agent access is unavailable until tool metadata loads.'
+									: 'No agent can reach this connection.'}
+							</EmptyRows>
+						)}
 						{withAccess.map((agent) => (
 							<Row
 								key={agent.id}

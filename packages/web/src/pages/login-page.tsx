@@ -1,9 +1,10 @@
-import {useState, type FormEvent} from 'react';
+import {useEffect, useRef, useState, type FormEvent} from 'react';
 import {Link, useLoaderData, useSearchParams} from 'react-router';
 import {
 	devLogin,
 	googleSignInUrl,
 	requestMagicLink,
+	passwordSignIn,
 	type SignInMethods,
 } from '@/client/auth-client';
 import {GoogleIcon} from '@/components/google-icon';
@@ -35,8 +36,7 @@ type Status =
 	| {kind: 'sent'; logged: boolean}
 	| {kind: 'error'; message: string};
 
-// The human side's sign-in: Google, or a magic link to the email address. Both come back with a
-// session cookie and land on `callbackUrl`, the page the user was sent here from.
+// All human sign-in methods use the same session and same-site callback.
 export function LoginPage() {
 	const methods = useLoaderData<SignInMethods>();
 	const [searchParams] = useSearchParams();
@@ -80,9 +80,13 @@ export function LoginPage() {
 					</Link>
 				</p>
 				{redirectError && status.kind === 'idle' && (
-					<p className="text-sm text-destructive">{errorMessage(redirectError)}</p>
+					<p className="text-sm text-destructive">
+						{methods.password
+							? 'Could not sign in. Please try again.'
+							: errorMessage(redirectError)}
+					</p>
 				)}
-				{methods.google && (
+				{!methods.password && methods.google && (
 					<>
 						<Button
 							variant="outline"
@@ -96,30 +100,45 @@ export function LoginPage() {
 						<p className="text-center text-sm text-muted-foreground">or</p>
 					</>
 				)}
-				<form className="grid gap-4" onSubmit={(event) => void onSubmit(event)}>
-					<div className="grid gap-2">
-						<Label htmlFor="email">Email</Label>
-						<Input
-							id="email"
-							type="email"
-							autoComplete="email"
-							value={email}
-							onChange={(event) => setEmail(event.target.value)}
-						/>
-					</div>
-					<Button type="submit" disabled={email.trim().length === 0 || status.kind === 'sending'}>
-						Send sign-in link
-					</Button>
-					{status.kind === 'sent' && (
-						<p className="text-sm text-muted-foreground">
-							{status.logged
-								? 'Sending email is not set up yet, so the sign-in link was written to the server log.'
-								: 'Check your email for a link to sign in.'}
+				{methods.password && <PasswordLoginForm callbackUrl={callbackUrl} />}
+				{!methods.password && methods.email && (
+					<form className="grid gap-4" onSubmit={(event) => void onSubmit(event)}>
+						<div className="grid gap-2">
+							<Label htmlFor="email">Email</Label>
+							<Input
+								id="email"
+								type="email"
+								autoComplete="email"
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+							/>
+						</div>
+						<Button type="submit" disabled={email.trim().length === 0 || status.kind === 'sending'}>
+							Send sign-in link
+						</Button>
+						{status.kind === 'sent' && (
+							<p className="text-sm text-muted-foreground">
+								{status.logged
+									? 'Sending email is not set up yet, so the sign-in link was written to the server log.'
+									: 'Check your email for a link to sign in.'}
+							</p>
+						)}
+						{status.kind === 'error' && (
+							<p className="text-sm text-destructive">{status.message}</p>
+						)}
+					</form>
+				)}
+				{!methods.password && methods.dev && <DevLoginButton callbackUrl={callbackUrl} />}
+				{!Object.values(methods).some(Boolean) && (
+					<>
+						<p role="alert" className="text-sm text-destructive">
+							Sign-in is temporarily unavailable. Please try again.
 						</p>
-					)}
-					{status.kind === 'error' && <p className="text-sm text-destructive">{status.message}</p>}
-				</form>
-				{import.meta.env.DEV && <DevLoginButton callbackUrl={callbackUrl} />}
+						<Button variant="outline" onClick={() => window.location.reload()}>
+							Try again
+						</Button>
+					</>
+				)}
 			</div>
 		</div>
 	);
@@ -145,5 +164,86 @@ function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 		>
 			Create dev user
 		</Button>
+	);
+}
+
+// Abort on navigation and ignore late responses, so an interrupted login cannot redirect a
+// newer page. The ref also blocks multiple submits before React has rendered the busy state.
+function PasswordLoginForm({callbackUrl}: {callbackUrl: string | undefined}) {
+	const [username, setUsername] = useState('');
+	const [password, setPassword] = useState('');
+	const [status, setStatus] = useState<Status>({kind: 'idle'});
+	const pending = useRef<AbortController | null>(null);
+	useEffect(() => () => pending.current?.abort(), []);
+
+	async function onSubmit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (pending.current || !username.trim() || !password) {
+			return;
+		}
+		const controller = new AbortController();
+		pending.current = controller;
+		setStatus({kind: 'sending'});
+		const request = passwordSignIn(username.trim(), password, controller.signal);
+		setPassword('');
+		const result = await request;
+		if (controller.signal.aborted) {
+			return;
+		}
+		pending.current = null;
+		if (result.isErr()) {
+			setStatus({kind: 'error', message: 'Could not sign in. Please try again.'});
+			return;
+		}
+		if ('error' in result.value) {
+			const message =
+				result.value.error === 'TooManyAttempts'
+					? 'Too many sign-in attempts. Please wait a few minutes and try again.'
+					: 'Could not sign in. Check your username and password and try again.';
+			setStatus({kind: 'error', message});
+			return;
+		}
+		window.location.href = callbackUrl ?? '/';
+	}
+
+	const loading = status.kind === 'sending';
+	return (
+		<form className="grid gap-4" aria-busy={loading} onSubmit={(event) => void onSubmit(event)}>
+			<div className="grid gap-2">
+				<Label htmlFor="username">Username</Label>
+				<Input
+					id="username"
+					name="username"
+					autoComplete="username"
+					autoCapitalize="none"
+					spellCheck={false}
+					required
+					value={username}
+					disabled={loading}
+					onChange={(event) => setUsername(event.target.value)}
+				/>
+			</div>
+			<div className="grid gap-2">
+				<Label htmlFor="password">Password</Label>
+				<Input
+					id="password"
+					name="password"
+					type="password"
+					autoComplete="current-password"
+					required
+					value={password}
+					disabled={loading}
+					onChange={(event) => setPassword(event.target.value)}
+				/>
+			</div>
+			<Button type="submit" disabled={loading || !username.trim() || !password}>
+				{loading ? 'Signing in…' : 'Sign in'}
+			</Button>
+			{status.kind === 'error' && (
+				<p role="alert" className="text-sm text-destructive">
+					{status.message}
+				</p>
+			)}
+		</form>
 	);
 }

@@ -477,7 +477,20 @@ const info: Integration = {
 	],
 };
 
-export const INTEGRATIONS: Integration[] = [info, email, granola, notion, linear];
+export const INTEGRATIONS: Integration[] = [
+	info,
+	email,
+	granola,
+	notion,
+	linear,
+	{
+		id: 'custom-mcp',
+		name: 'Custom MCP',
+		description: 'Connect an HTTPS MCP server and grant individual tools',
+		actions: [],
+		collections: [],
+	},
+];
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);

@@ -26,6 +26,7 @@ COPY packages/integrations/package.json packages/integrations/
 COPY packages/ui/package.json packages/ui/
 COPY packages/utils/package.json packages/utils/
 COPY packages/web/package.json packages/web/
+COPY packages/website/package.json packages/website/
 RUN bun install --frozen-lockfile --production --filter '@proxy/api'
 # The root's postinstall, which generates the Prisma client, does not run for a filtered install.
 RUN bun --bun packages/db/node_modules/.bin/prisma generate --schema packages/db/prisma/schema.prisma
