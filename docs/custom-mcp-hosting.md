@@ -59,9 +59,9 @@ Sources: [Neon's current Prisma guide](https://github.com/neondatabase/website/b
 
 ## Vercel deployment recipe
 
-These are preparation steps; a Vercel-specific image has not been built or deployed as part of this guide.
+The repository includes `Dockerfile.vercel`, and the image workflow validates it without publishing an extra image. A successful CI image build is not a completed Vercel deployment; account setup, secrets and database migration still need verification.
 
-1. Add a root `Dockerfile.vercel` based on the existing Dockerfile, preserving its built UI, production dependencies, Prisma client and API sources. Have this variant start `bun packages/api/src/index.ts` directly, without the migration entrypoint described above.
+1. Use the included root `Dockerfile.vercel`. It preserves the built UI, production dependencies, Prisma client and API sources, and starts `bun packages/api/src/index.ts` directly without running migrations on cold starts.
 2. Use the repository root as Vercel's build context and the Container preset/runtime. Set `PORT=4000` explicitly in project settings; Vercel otherwise defaults to port 80.
 3. Add the runtime settings above to production, and independent preview settings. Set `APP_URL` to the actual stable origin for each environment. Select a region close to Neon.
 4. Run the release migration using the direct URL, then deploy a preview with the pooled URL. Verify the image build and runtime before planning production promotion.

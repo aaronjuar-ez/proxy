@@ -5,7 +5,7 @@ Validated locally against fork base `1b182de09e4acefb1e7ca526e8ed0d136d8b90b3`, 
 ## Passed
 
 - `bun run typecheck`: all packages.
-- `bun run test`: 435 tests, zero failures (API 335, web 26, integrations 26, database 16, utils 32).
+- `bun run test`: 437 tests, zero failures (API 337, web 26, integrations 26, database 16, utils 32).
 - `bun run build`: web, docs, and website production builds.
 - `bun run lint`: passes with one existing fast-refresh warning in unchanged `packages/web/src/pages/agent/agent-collection-page.tsx`.
 - `git diff --check`: clean.
