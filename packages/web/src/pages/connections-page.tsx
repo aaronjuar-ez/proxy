@@ -51,7 +51,9 @@ export function ConnectionsPage() {
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
 									<span className={CELLS.agents}>
-										{agentsWithAccess(agents, connection).length}
+										{connection.customMcpUnavailable
+											? 'Unavailable'
+											: agentsWithAccess(agents, connection).length}
 									</span>
 								</>
 							}

@@ -7,6 +7,7 @@ import {AgentSetup} from '@/components/agent-setup';
 import {ConnectCustomMcpForm} from '@/components/connect-custom-mcp-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectionAccess} from '@/components/connection-access';
+import {CustomMcpUnavailable} from '@/components/custom-mcp-tools';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
@@ -114,9 +115,14 @@ export function WelcomeConnectionPage() {
 		return (
 			<Frame step={2}>
 				<SuccessLine>Connection added successfully</SuccessLine>
-				<p className="text-sm text-muted-foreground">
-					All tools are blocked. Finish setup, then open an agent’s page to grant individual tools.
-				</p>
+				{connection.customMcpUnavailable ? (
+					<CustomMcpUnavailable />
+				) : (
+					<p className="text-sm text-muted-foreground">
+						All tools are blocked. Finish setup, then open an agent’s page to grant individual
+						tools.
+					</p>
+				)}
 				<Link to="/welcome/connections" className="text-sm underline">
 					Continue
 				</Link>

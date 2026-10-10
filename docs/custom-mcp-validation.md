@@ -5,7 +5,7 @@ Validated locally against fork base `1b182de09e4acefb1e7ca526e8ed0d136d8b90b3`, 
 ## Passed
 
 - `bun run typecheck`: all packages.
-- `bun run test`: 423 tests, zero failures (API 331, web 18, integrations 26, database 16, utils 32).
+- `bun run test`: 435 tests, zero failures (API 335, web 26, integrations 26, database 16, utils 32).
 - `bun run build`: web, docs, and website production builds.
 - `bun run lint`: passes with one existing fast-refresh warning in unchanged `packages/web/src/pages/agent/agent-collection-page.tsx`.
 - `git diff --check`: clean.
@@ -18,6 +18,8 @@ New coverage includes:
 - Deny-by-default grants, rejecting upstream read-only hints, audit failure preventing remote work, unlogged arguments/secrets, changed definitions, live authorization rechecks and unknown-outcome warnings.
 - Atomic snapshot/grant transaction behavior, A → B → A not resurrecting a grant, and rejecting delayed stale grant writes.
 - Creation/metadata organization scope, encrypted credential boundary, compare-and-swap refreshes, per-agent grant routes, UI permission rendering and audit labels.
+- Unavailable custom metadata cannot block connection/agent/activity/onboarding pages; broken connections stay visible and disconnectable.
+- Pre-dispatch initialization and transport failures remain ordinary unreachable errors; only uncertain post-dispatch outcomes warn that a tool may have executed.
 
 ## Not validated here
 

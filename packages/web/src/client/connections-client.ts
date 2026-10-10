@@ -5,6 +5,7 @@ import type {Result} from 'ts-results-es';
 import type {Connection} from '@/lib/types';
 import {connectionSchema, customMcpSchema} from '@/client/schemas';
 import {apiRequest, apiSend} from '@/client/request';
+import {isUnauthenticatedError} from '@/client/me-client';
 
 export function listConnections(): Promise<Result<{connections: Connection[]}, FetchError>> {
 	return Do(async ($) => {
@@ -63,12 +64,17 @@ function withCustomMcp(connection: Connection): Promise<Result<Connection, Fetch
 		if (connection.integrationId !== 'custom-mcp') {
 			return connection;
 		}
-		return {
-			...connection,
-			customMcp: $(
-				await apiRequest('GET', `/api/connections/${connection.id}/custom-mcp`, customMcpSchema),
-			),
-		};
+		const metadata = await apiRequest(
+			'GET',
+			`/api/connections/${connection.id}/custom-mcp`,
+			customMcpSchema,
+		);
+		if (metadata.isErr() && !isUnauthenticatedError(metadata.error)) {
+			// Metadata is optional for recovery: retain the row and its Disconnect action,
+			// but discard any stale tools so unavailable permissions cannot be edited.
+			return {...connection, customMcp: undefined, customMcpUnavailable: true};
+		}
+		return {...connection, customMcp: $(metadata)};
 	});
 }
 export function connectCustomMcp(input: {account: string; url: string; bearerToken?: string}) {

@@ -10,6 +10,21 @@ export function CustomMcpTools({connection}: {connection: Connection}) {
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const revalidator = useRevalidator();
+	if (connection.customMcpUnavailable) {
+		return (
+			<div className="grid gap-4 text-sm">
+				<CustomMcpUnavailable />
+				<Button
+					variant="outline"
+					className="justify-self-start"
+					disabled={revalidator.state === 'loading'}
+					onClick={() => void revalidator.revalidate()}
+				>
+					Retry loading tools
+				</Button>
+			</div>
+		);
+	}
 	return (
 		<div className="grid gap-4 text-sm">
 			<p className="break-all text-muted-foreground">{connection.customMcp?.url}</p>
@@ -72,5 +87,14 @@ export function CustomMcpTools({connection}: {connection: Connection}) {
 				</details>
 			))}
 		</div>
+	);
+}
+
+export function CustomMcpUnavailable() {
+	return (
+		<p role="alert" className="text-sm text-destructive">
+			Tool metadata could not be loaded. Permissions cannot be viewed or changed here until it
+			loads. Existing grants are unchanged. Retry, or disconnect this connection and add it again.
+		</p>
 	);
 }

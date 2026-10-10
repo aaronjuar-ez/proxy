@@ -101,10 +101,14 @@ describe('custom MCP authorization and audit', () => {
 		expect((await runCustomAgentTool(caller, agent, connection, tool.name, {}, {})).unwrapErr().kind).toBe('forbidden');
 	});
 	test('unknown call outcomes warn against blindly retrying mutations', async () => {
-		callUpstreamTool.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('timeout'))));
+		callUpstreamTool.mockResolvedValue(Err(ApiErr.conflict('The remote tool may have run; check the outcome before retrying.')));
 		const error = (await runCustomAgentTool(caller, agent, connection, tool.name, {}, {})).unwrapErr();
 		expect(error.kind).toBe('conflict');
 		expect('message' in error && error.message).toContain('before retrying');
+	});
+	test('preflight failures retain the ordinary unreachable error', async () => {
+		callUpstreamTool.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('initialization failed'))));
+		expect((await runCustomAgentTool(caller, agent, connection, tool.name, {}, {})).unwrapErr().kind).toBe('provider_unreachable');
 	});
 	test('fingerprints ignore key order and change on schema metadata change', () => {
 		expect(toolActionId({name: 'x', inputSchema: {type: 'object', properties: {}}})).toBe(toolActionId({inputSchema: {properties: {}, type: 'object'}, name: 'x'}));

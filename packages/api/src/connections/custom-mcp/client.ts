@@ -1,5 +1,6 @@
 import {request} from 'node:https';
 import type {ClientRequest} from 'node:http';
+import type {TLSSocket} from 'node:tls';
 import {StringDecoder} from 'node:string_decoder';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {Err, Ok, Result} from 'ts-results-es';
@@ -54,6 +55,10 @@ function hasSafeDepth(value: unknown): boolean {
 	return true;
 }
 
+function unknownOutcome(): ApiError {
+	return ApiErr.conflict('The remote tool may have run, but its outcome could not be confirmed. Check the external service before retrying to avoid duplicate actions.');
+}
+
 function parseRpc(text: string, id: number): Result<unknown, ApiError> | undefined {
 	const decoded = Result.wrap((): unknown => JSON.parse(text));
 	if (decoded.isErr()) {
@@ -106,6 +111,7 @@ function post(
 		return $(
 			await new Promise<Result<RpcResponse, ApiError>>((resolve) => {
 				let done = false;
+				let dispatched = false;
 				let req: ClientRequest | undefined;
 				const finish = (result: Result<RpcResponse, ApiError>) => {
 					if (done) {
@@ -113,7 +119,7 @@ function post(
 					}
 					done = true;
 					clearTimeout(timer);
-					resolve(result);
+					resolve(method === 'tools/call' && dispatched ? result.mapErr((error) => (error.kind === 'provider_unreachable' ? unknownOutcome() : error)) : result);
 					req?.destroy();
 				};
 				const timer = setTimeout(() => finish(Err(failure())), Math.max(1, session.deadline - Date.now()));
@@ -137,6 +143,7 @@ function post(
 							},
 						},
 						(response) => {
+							dispatched = true;
 							const status = response.statusCode ?? 0;
 							if (status === 401 || status === 403) {
 								finish(Err(ApiErr.credentialsRejected()));
@@ -210,6 +217,17 @@ function post(
 					return;
 				}
 				req = created.value;
+				// Bun can emit request 'finish' before the TLS handshake. Only a verified
+				// TLS connection (or an HTTP response) means transmission may have begun.
+				// Never label a DNS/certificate failure as possible tool execution.
+				req.on('socket', (socket) => {
+					const tls = socket as TLSSocket;
+					const verified = () => {
+						if (tls.authorized) dispatched = true;
+					};
+					verified();
+					tls.once('secureConnect', verified);
+				});
 				req.on('error', () => finish(Err(failure())));
 				req.end(httpMethod === 'DELETE' ? undefined : encoded);
 			}),
@@ -297,7 +315,7 @@ export function callUpstreamTool(config: UpstreamConfig, name: string, args: Rec
 			const response = $(await post(config, session, 'tools/call', {name, arguments: args}, 2, 'POST', beforeCall));
 			const parsed = resultSchema.safeParse(response.result);
 			if (!parsed.success) {
-				return $(Err(failure()));
+				return $(Err(unknownOutcome()));
 			}
 			return parsed.data;
 		}),

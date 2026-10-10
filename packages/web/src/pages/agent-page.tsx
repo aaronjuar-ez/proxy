@@ -26,6 +26,7 @@ import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
+import {CustomMcpUnavailable} from '@/components/custom-mcp-tools';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, RowList} from '@/components/row-list';
@@ -276,6 +277,12 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 		const actions = integration.actions
 			.filter((action) => !changedOnly || own[action.id] !== undefined)
 			.filter((action) => named || matches(action.label) || matches(action.description));
+		if (connection.customMcpUnavailable) {
+			if (!named || (changedOnly && Object.keys(own).length === 0)) {
+				return [];
+			}
+			return [{connection, integration, label, own, actions}];
+		}
 		if (actions.length === 0) {
 			return [];
 		}
@@ -331,14 +338,24 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 								<IntegrationLogo integration={integration} />
 								<span className="min-w-0 truncate">{label}</span>
 								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
-									{connection.integrationId === 'custom-mcp'
-										? `${actions.filter((action) => own[action.id] === true).length} tools allowed`
-										: Object.keys(own).length > 0
-											? 'Changed'
-											: 'Default'}
+									{connection.customMcpUnavailable
+										? 'Permissions unavailable'
+										: connection.integrationId === 'custom-mcp'
+											? `${actions.filter((action) => own[action.id] === true).length} tools allowed`
+											: Object.keys(own).length > 0
+												? 'Changed'
+												: 'Default'}
 								</span>
 							</button>
-							{open && (
+							{open && connection.customMcpUnavailable && (
+								<div className="grid gap-2 px-3 py-2">
+									<CustomMcpUnavailable />
+									<Link to={`/connections/${connection.id}`} className="text-sm underline">
+										Manage connection
+									</Link>
+								</div>
+							)}
+							{open && !connection.customMcpUnavailable && (
 								<ConnectionAccess
 									explicitOnly={connection.integrationId === 'custom-mcp'}
 									actions={actions}

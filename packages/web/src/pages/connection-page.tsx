@@ -91,7 +91,13 @@ export function ConnectionPage() {
 				</Section>
 				<Section title="Agents with access">
 					<RowList>
-						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
+						{withAccess.length === 0 && (
+							<EmptyRows>
+								{connection.customMcpUnavailable
+									? 'Agent access is unavailable until tool metadata loads.'
+									: 'No agent can reach this connection.'}
+							</EmptyRows>
+						)}
 						{withAccess.map((agent) => (
 							<Row
 								key={agent.id}

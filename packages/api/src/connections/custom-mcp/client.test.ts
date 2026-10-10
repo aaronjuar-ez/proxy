@@ -8,8 +8,9 @@ import {ApiErr} from '@proxy/utils';
 
 const {request: actualRequest, createServer: createTlsServer} = await import('node:https');
 let fixturePort: number | undefined;
+let fixtureTrustCertificate = true;
 
-type Reply = {status?: number; body?: string; headers?: Record<string, string>; holdOpen?: boolean};
+type Reply = {status?: number; body?: string; headers?: Record<string, string>; holdOpen?: boolean; fail?: 'before-send' | 'after-send'};
 let addresses = [{address: '93.184.216.34', family: 4}];
 let replies: Reply[] = [];
 let dnsLookups = 0;
@@ -24,7 +25,7 @@ mock.module('node:dns/promises', () => ({
 mock.module('node:https', () => ({
 	request: (url: URL, options: RequestOptions, callback: (response: IncomingMessage) => void) => {
 		if (fixturePort) {
-			return actualRequest(url, {...options, ca: fixtureCertificate}, callback);
+			return actualRequest(url, {...options, ca: fixtureTrustCertificate ? fixtureCertificate : undefined}, callback);
 		}
 		const req = new EventEmitter();
 		return Object.assign(req, {
@@ -37,6 +38,18 @@ mock.module('node:https', () => ({
 					return;
 				}
 				queueMicrotask(() => {
+					if (reply.fail === 'before-send') {
+						req.emit('error', new Error('TLS failed'));
+						return;
+					}
+					const tlsSocket = Object.assign(new EventEmitter(), {authorized: true});
+					req.emit('socket', tlsSocket);
+					tlsSocket.emit('secureConnect');
+					req.emit('finish');
+					if (reply.fail === 'after-send') {
+						req.emit('error', new Error('Connection lost'));
+						return;
+					}
 					const response = new IncomingMessage(new Socket());
 					response.statusCode = reply.status ?? 200;
 					response.headers = {'content-type': 'application/json', ...reply.headers};
@@ -206,6 +219,23 @@ describe('custom MCP protocol', () => {
 			expect(sent.map(({options}) => options.method)).toEqual(['POST', 'DELETE']);
 		}
 	});
+	test('initialization and pre-send failures never claim possible tool execution', async () => {
+		replies = [{fail: 'before-send'}];
+		expect((await callUpstreamTool(config, 'execute', {})).unwrapErr().kind).toBe('provider_unreachable');
+		expect(sent.filter(({body}) => body).map(({body}) => JSON.parse(body).method)).toEqual(['initialize']);
+		replies = [...initialized(), {fail: 'before-send'}];
+		expect((await callUpstreamTool(config, 'execute', {})).unwrapErr().kind).toBe('provider_unreachable');
+	});
+	test('a lost response after dispatch warns against repeating the action', async () => {
+		replies = [...initialized(), {fail: 'after-send'}];
+		const error = (await callUpstreamTool(config, 'execute', {})).unwrapErr();
+		expect(error.kind).toBe('conflict');
+		expect('message' in error && error.message).toContain('before retrying');
+	});
+	test('an invalid result after dispatch also has an unknown outcome', async () => {
+		replies = [...initialized(), {body: rpc(2, {unexpected: true})}];
+		expect((await callUpstreamTool(config, 'execute', {})).unwrapErr().kind).toBe('conflict');
+	});
 	test('preserves structured, image, resource, metadata and tool errors', async () => {
 		const toolResult = {
 			content: [
@@ -319,8 +349,15 @@ test('real TLS socket honors the pinned lookup and parses JSON initialization pl
 		const result = await discoverTools(config);
 		expect(result.isOk() && result.value.map((tool) => tool.name)).toEqual(['socket_tool']);
 		expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list', 'DELETE']);
+		const rejected = await callUpstreamTool(config, 'execute', {}, async () => {
+			fixtureTrustCertificate = false;
+			return Ok(undefined);
+		});
+		expect(rejected.unwrapErr().kind).toBe('provider_unreachable');
+		expect(methods).not.toContain('tools/call');
 	} finally {
 		fixturePort = undefined;
+		fixtureTrustCertificate = true;
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}

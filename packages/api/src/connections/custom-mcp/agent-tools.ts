@@ -115,15 +115,7 @@ export function runCustomAgentTool(
 				}
 				return $(Ok(undefined));
 			});
-		const upstream = $(
-			await callUpstreamTool(config, name, args, beforeCall).then((result) =>
-				result.mapErr((error) =>
-					error.kind === 'provider_unreachable'
-						? ApiErr.conflict('The remote tool may have run, but its outcome could not be confirmed. Check the external service before retrying to avoid duplicate actions.')
-						: error,
-				),
-			),
-		);
+		const upstream = $(await callUpstreamTool(config, name, args, beforeCall));
 		return {upstream};
 	});
 }
