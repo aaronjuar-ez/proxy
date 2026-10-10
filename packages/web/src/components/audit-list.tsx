@@ -67,7 +67,11 @@ export function AuditList({
 								<span className="flex items-center justify-end gap-2">
 									{integration && <IntegrationLogo integration={integration} />}
 									<span className="truncate">
-										{located ? connectionLabel(connections, located.connection) : 'Disconnected'}
+										{located
+											? located.connection.integrationId === 'custom-mcp'
+												? located.connection.account
+												: connectionLabel(connections, located.connection)
+											: 'Disconnected'}
 									</span>
 								</span>
 							</span>

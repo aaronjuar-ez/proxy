@@ -52,9 +52,14 @@ export function AgentHomePage() {
 							detail={connection.account}
 						>
 							<p className="text-sm text-muted-foreground md:px-3">
-								You can: {describeActions(integration, connection.actions)}.
+								{connection.integrationId === 'custom-mcp'
+									? `${connection.actions.length} explicitly allowed tools.`
+									: `You can: ${describeActions(integration, connection.actions)}.`}
 							</p>
 							<RowList>
+								{connection.integrationId === 'custom-mcp' && (
+									<Row to={`/agent/${connection.id}/tools`} title="Open MCP tools" />
+								)}
 								{collections.map((collection) => {
 									// One that can only add, as when sending without reading, opens on its form.
 									const base = `/agent/${connection.id}/${collection.id}`;

@@ -3,9 +3,9 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS, type Tool} from '@proxy/integrations';
+import {findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS} from '@proxy/integrations';
 
-import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
+import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection, type AgentTool} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
 import {log, serializeError} from '../observability/log';
 
@@ -66,6 +66,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 
 // "Read, Archive, Send": what the actions are called, in the catalog's order.
 function describeActions(connection: AgentConnection): string {
+	if (connection.integrationId === 'custom-mcp') return `${connection.actions.length} explicitly granted custom tools`;
 	const integration = findIntegration(connection.integrationId);
 	return (integration?.actions ?? [])
 		.filter((action) => connection.actions.includes(action.id))
@@ -82,8 +83,16 @@ function connectionSummary(connection: AgentConnection) {
 	};
 }
 
-function toolSummary(tool: Tool) {
-	return {name: tool.name, title: tool.title, description: tool.description, use: tool.readOnly ? 'read' : 'run', risk: tool.risk, params: tool.inputSchema};
+function toolSummary(tool: AgentTool) {
+	return {
+		name: tool.name,
+		title: tool.title,
+		description: tool.description,
+		use: tool.readOnly ? 'read' : 'run',
+		risk: tool.risk,
+		params: tool.inputSchema,
+		...('outputSchema' in tool ? {outputSchema: tool.outputSchema} : {}),
+	};
 }
 
 // "Email, Granola, Notion and Linear": the services a person can connect, Information being built in.
@@ -171,5 +180,6 @@ export async function callMcpTool(signedIn: SignedInAgent, name: string, args: R
 	if (result.isErr()) {
 		return {content: [{type: 'text', text: errorMessage(result.error, args)}], isError: true};
 	}
-	return {content: [{type: 'text', text: JSON.stringify(result.value)}], structuredContent: result.value};
+	const upstream = result.value.upstream as {isError?: boolean} | undefined;
+	return {content: [{type: 'text', text: JSON.stringify(result.value)}], structuredContent: result.value, ...(upstream?.isError ? {isError: true as const} : {})};
 }

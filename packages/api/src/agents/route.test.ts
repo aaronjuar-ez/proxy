@@ -3,6 +3,9 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
+const decryptSecret = mock();
+mock.module('../utils/secret-crypto', () => ({decryptSecret}));
+
 const listAgents = mock();
 const getAgent = mock();
 const createAgent = mock();
@@ -15,8 +18,10 @@ const isProviderConflict = mock(() => false);
 mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
 
 const getConnection = mock();
+const getConnectionWithCredential = mock();
+const setCustomMcpGrants = mock();
 
-mock.module('@proxy/db/connection', () => ({getConnection}));
+mock.module('@proxy/db/connection', () => ({getConnection, getConnectionWithCredential, setCustomMcpGrants}));
 
 const requireUserOrgId = mock();
 
@@ -155,5 +160,38 @@ describe('handleSetAgentGrantsRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('not_found');
 		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+});
+
+describe('custom MCP grant routes', () => {
+	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
+	const tool = {name: 'search', inputSchema: {type: 'object'}};
+	const row = {id: 'conn-1', integrationId: 'custom-mcp', credential: 'encrypted-snapshot', defaults: []};
+	beforeEach(() => {
+		getConnection.mockResolvedValue(Ok(row));
+		getConnectionWithCredential.mockResolvedValue(Ok(row));
+		decryptSecret.mockReturnValue(Ok(JSON.stringify({version: 1, url: 'https://mcp.example.com/mcp', tools: [tool]})));
+		setCustomMcpGrants.mockResolvedValue(Ok(true));
+	});
+	test('new permissions use snapshot-guarded transaction rather than generic grants', async () => {
+		const {toolActionId} = await import('../connections/custom-mcp/store');
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const actions = {[toolActionId(tool)]: true};
+		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions}))).isOk()).toBe(true);
+		expect(setCustomMcpGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', previous: 'encrypted-snapshot', actions});
+		expect(setAgentGrants).not.toHaveBeenCalled();
+	});
+	test('cannot grant a stale tool but may revoke it', async () => {
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const stale = `mcp:${'a'.repeat(64)}`;
+		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[stale]: true}}))).unwrapErr().kind).toBe('validation_error');
+		expect(setCustomMcpGrants).not.toHaveBeenCalled();
+		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[stale]: null}}))).isOk()).toBe(true);
+	});
+	test('concurrent snapshot changes cause conflict, never a stale approval', async () => {
+		const {toolActionId} = await import('../connections/custom-mcp/store');
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		setCustomMcpGrants.mockResolvedValue(Ok(false));
+		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[toolActionId(tool)]: true}}))).unwrapErr().kind).toBe('conflict');
 	});
 });

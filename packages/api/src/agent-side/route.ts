@@ -2,10 +2,9 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
-import type {Tool} from '@proxy/integrations';
 
 import type {AgentRequest} from '../server/middleware/require-agent';
-import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection, type ToolResult} from './tools';
+import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection, type ToolResult, type AgentTool} from './tools';
 
 // The agent side over HTTP, for the web app's agent pages: the same connections, tools and runs
 // as the MCP server, signed in with the agent's cookie.
@@ -16,7 +15,7 @@ export function handleAgentMeRoute(request: AgentRequest): Promise<Result<{agent
 }
 
 /** `GET /api/agent/connections/:connectionId/tools`: the tools the agent has with the connection. */
-export function handleAgentListToolsRoute(request: AgentRequest): Promise<Result<{tools: Tool[]}, ApiError>> {
+export function handleAgentListToolsRoute(request: AgentRequest): Promise<Result<{tools: AgentTool[]}, ApiError>> {
 	return Do(async ($) => ({tools: $(await listAgentTools(request.agent, request.params.connectionId ?? ''))}));
 }
 

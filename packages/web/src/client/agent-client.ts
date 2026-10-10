@@ -40,7 +40,7 @@ export function getAgentMe() {
 // Everything an agent does with a connection is one of its tools, generated from the catalog
 // (`toolName` in @proxy/integrations): the page asks for a list or a record and gets one back.
 function toolPath(connectionId: string, tool: string): string {
-	return `/api/agent/connections/${connectionId}/tools/${tool}`;
+	return `/api/agent/connections/${encodeURIComponent(connectionId)}/tools/${encodeURIComponent(tool)}`;
 }
 
 /**
@@ -81,4 +81,26 @@ export function runAgentRecordTool(
 			params,
 		},
 	);
+}
+
+const agentToolSchema = z.object({
+	name: z.string(),
+	title: z.string(),
+	description: z.string(),
+	inputSchema: z.record(z.string(), z.json()),
+});
+export type AgentTool = z.infer<typeof agentToolSchema>;
+export function listAgentTools(connectionId: string) {
+	return apiRequest(
+		'GET',
+		`/api/agent/connections/${encodeURIComponent(connectionId)}/tools`,
+		z.object({tools: z.array(agentToolSchema)}),
+	);
+}
+export function runAgentCustomTool(
+	connectionId: string,
+	tool: string,
+	params: Record<string, z.infer<ReturnType<typeof z.json>>>,
+) {
+	return apiRequest('POST', toolPath(connectionId, tool), z.object({upstream: z.json()}), {params});
 }

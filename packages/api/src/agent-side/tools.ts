@@ -10,6 +10,9 @@ import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {parseToolParams} from './tool-params';
+import {CUSTOM_MCP} from '../connections/custom-mcp/store';
+import {customActions, listCustomAgentTools, runCustomAgentTool, type UpstreamAgentTool} from '../connections/custom-mcp/agent-tools';
+import type {UpstreamResult} from '../connections/custom-mcp/client';
 
 /**
  * The agent side, whichever way an agent comes in: the connections it can use, the tools it has
@@ -26,9 +29,11 @@ export type AgentConnection = {
 };
 
 /** A page of records from a list, or the record a tool opened, wrote or ran on: null once it is gone. */
-export type ToolResult = RecordPage | {record: DataRecord | null};
+export type AgentTool = Tool | UpstreamAgentTool;
+export type ToolResult = RecordPage | {record: DataRecord | null} | {upstream: UpstreamResult};
 
 export function actionsOf(agent: AgentRow, connection: ConnectionRow): string[] {
+	if (connection.integrationId === CUSTOM_MCP) return customActions(agent, connection);
 	const integration = findIntegration(connection.integrationId);
 	if (!integration) {
 		return [];
@@ -44,7 +49,9 @@ export function actionsOf(agent: AgentRow, connection: ConnectionRow): string[] 
 export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await getAgent(signedIn.orgId, signedIn.agentId));
-		return $(requirePresent(agent, ApiErr.unauthenticated()));
+		const current = $(requirePresent(agent, ApiErr.unauthenticated()));
+		if (current.revokedAt) return $(Err(ApiErr.unauthenticated()));
+		return current;
 	});
 }
 
@@ -65,10 +72,11 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{a
 }
 
 /** The tools the agent has with one connection: none for one it can't use. */
-export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<Tool[], ApiError>> {
+export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<AgentTool[], ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		const {connection, integration} = $(await loadConnection(signedIn.orgId, connectionId));
+		if (connection.integrationId === CUSTOM_MCP) return $(listCustomAgentTools(agent, connection));
 		return allowedTools(integration, actionsOf(agent, connection));
 	});
 }
@@ -108,6 +116,7 @@ export function runAgentTool(caller: AgentCaller, connectionId: string, toolName
 	return Do(async ($) => {
 		const agent = $(await requireAgent(caller.agent));
 		const {connection, integration, connector} = $(await loadConnection(caller.agent.orgId, connectionId));
+		if (connection.integrationId === CUSTOM_MCP) return $(await runCustomAgentTool(caller, agent, connection, toolName, params, options));
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
 		const run: ToolRun = {caller, target: {connection, collection}, connector, tool};

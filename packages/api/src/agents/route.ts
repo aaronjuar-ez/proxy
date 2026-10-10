@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {deleteAgent, getAgent, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
-import {getConnection} from '@proxy/db/connection';
+import {getConnection, setCustomMcpGrants} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
@@ -12,6 +12,7 @@ import {requireUserOrgId} from '../utils/user-org';
 import {toAgentResponse, type AgentResponse} from './agent-response';
 import {createAgentLogin} from './create-agent-login';
 import {generatePassword} from './credentials';
+import {CUSTOM_MCP, loadCustomMcp, toolActionId} from '../connections/custom-mcp/store';
 
 function agentIdOf(request: AuthenticatedRequest): string {
 	return request.params.agentId ?? '';
@@ -100,8 +101,24 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 		const connectionId = request.params.connectionId ?? '';
 		$(await requireAgent(orgId, agentId));
 		const connection = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
-		const integration = $(requireIntegration(connection.integrationId));
-		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
+		let actions: Record<string, boolean | null>;
+		if (connection.integrationId === CUSTOM_MCP) {
+			const {config, connection: stored} = $(await loadCustomMcp(orgId, connectionId));
+			actions = $(
+				parseSchema(
+					z.object({actions: z.record(z.string().regex(/^mcp:[a-f0-9]{64}$/), z.boolean().nullable()).refine((actions) => Object.keys(actions).length <= 500, 'Too many tool permissions')}).strict(),
+					request.body,
+				),
+			).actions;
+			const known = new Set(config.tools.map(toolActionId));
+			if (Object.keys(actions).some((id) => actions[id] === true && !known.has(id))) return $(Err(ApiErr.validationError('Unknown or changed MCP tool. Reload its tools first.')));
+			const saved = $(await setCustomMcpGrants({agentId, connectionId, previous: stored.credential!, actions}));
+			if (!saved) return $(Err(ApiErr.conflict('The connection changed. Reload its tools first.')));
+			return $(await requireAgent(orgId, agentId));
+		} else {
+			const integration = $(requireIntegration(connection.integrationId));
+			actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
+		}
 
 		$(await setAgentGrants({agentId, connectionId, actions}));
 		return $(await requireAgent(orgId, agentId));

@@ -27,6 +27,13 @@ their full private context or silently expanding what an agent may do.
   <a href="https://app.personalagentproxy.com">Or use our hosted instance →</a>
 </h3>
 
+## Custom remote MCP servers
+
+This fork also supports public HTTPS MCP servers with encrypted bearer authentication,
+schema-preserving tool calls, and explicit per-agent permissions. See
+[custom MCP setup and limitations](docs/custom-mcp.md) and
+[Docker + Neon hosting research](docs/custom-mcp-hosting.md).
+
 ## Designed to work across
 
 <table align="center">

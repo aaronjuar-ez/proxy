@@ -18,10 +18,12 @@ export function IntegrationCatalog({
 	connections,
 	returnTo,
 	onConnectEmail,
+	onConnectCustomMcp,
 }: {
 	connections: Connection[];
 	returnTo?: 'welcome';
 	onConnectEmail: () => void;
+	onConnectCustomMcp: () => void;
 }) {
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
 	const startQuery = returnTo ? `?returnTo=${returnTo}` : '';
@@ -60,8 +62,14 @@ export function IntegrationCatalog({
 							</IconButton>
 						) : (
 							<IconButton
-								label={count > 0 ? 'Connect another mailbox' : 'Connect a mailbox'}
-								onClick={onConnectEmail}
+								label={
+									integration.id === 'custom-mcp'
+										? 'Connect an MCP server'
+										: count > 0
+											? 'Connect another mailbox'
+											: 'Connect a mailbox'
+								}
+								onClick={integration.id === 'custom-mcp' ? onConnectCustomMcp : onConnectEmail}
 							>
 								<PlusIcon />
 							</IconButton>

@@ -1,5 +1,10 @@
 import {Navigate, createBrowserRouter, redirect} from 'react-router';
-import {agentCollectionLoader, agentRecordLoader, agentSideLoader} from '@/agent-loaders';
+import {
+	agentCollectionLoader,
+	agentRecordLoader,
+	agentSideLoader,
+	agentToolsLoader,
+} from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
 import {AgentSide} from '@/components/agent-side';
@@ -22,11 +27,13 @@ import {
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
+import {AddCustomMcpPage} from '@/pages/add-custom-mcp-page';
 import {AddEmailPage} from '@/pages/add-email-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
+import {AgentToolsPage} from '@/pages/agent/agent-tools-page';
 import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
@@ -86,6 +93,12 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	{
+		path: '/welcome/connections/custom-mcp',
+		loader: welcomeLoader,
+		element: <WelcomePage step="custom-mcp" />,
+		errorElement: <RouteError />,
+	},
+	{
 		path: '/welcome/connections/email',
 		loader: welcomeLoader,
 		element: <WelcomePage step="email" />,
@@ -109,6 +122,7 @@ export const router = createBrowserRouter([
 			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/connections/new/email', element: <AddEmailPage />},
+			{path: '/connections/new/custom-mcp', element: <AddCustomMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
@@ -125,6 +139,7 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/agent', element: <AgentHomePage />},
+			{path: '/agent/:connectionId/tools', loader: agentToolsLoader, element: <AgentToolsPage />},
 			{
 				path: '/agent/:connectionId/:collectionId',
 				loader: agentCollectionLoader,

@@ -331,17 +331,24 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 								<IntegrationLogo integration={integration} />
 								<span className="min-w-0 truncate">{label}</span>
 								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
-									{Object.keys(own).length > 0 ? 'Changed' : 'Default'}
+									{connection.integrationId === 'custom-mcp'
+										? `${actions.filter((action) => own[action.id] === true).length} tools allowed`
+										: Object.keys(own).length > 0
+											? 'Changed'
+											: 'Default'}
 								</span>
 							</button>
 							{open && (
 								<ConnectionAccess
+									explicitOnly={connection.integrationId === 'custom-mcp'}
 									actions={actions}
 									defaults={defaultActions(connection)}
 									own={own}
 									onChange={(changes) => onChange(connection.id, changes)}
-									onMakeDefault={(actionId, allowed) =>
-										onMakeDefault(connection.id, actionId, allowed)
+									onMakeDefault={
+										connection.integrationId === 'custom-mcp'
+											? undefined
+											: (actionId, allowed) => onMakeDefault(connection.id, actionId, allowed)
 									}
 								/>
 							)}

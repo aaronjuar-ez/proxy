@@ -26,6 +26,7 @@ export function AddConnectionPage() {
 			<IntegrationCatalog
 				connections={connections}
 				onConnectEmail={() => navigate('/connections/new/email')}
+				onConnectCustomMcp={() => navigate('/connections/new/custom-mcp')}
 			/>
 		</AppShell>
 	);

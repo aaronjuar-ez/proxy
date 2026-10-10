@@ -53,6 +53,7 @@ export function handleSetConnectionDefaultsRoute(request: AuthenticatedRequest):
 		const orgId = $(await requireUserOrgId(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		if (row.integrationId === 'custom-mcp') return $(Err(ApiErr.validationError('Custom MCP tools require explicit per-agent access; defaults are disabled.')));
 		const integration = $(requireIntegration(row.integrationId));
 		const actions = $(parseActionChanges(integration, z.boolean(), request.body));
 

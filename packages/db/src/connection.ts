@@ -127,3 +127,69 @@ export async function setConnectionDefaults(data: {
 		]);
 	});
 }
+
+/** Atomically replace a custom tool snapshot and permanently discard grants it no longer contains. */
+export async function refreshCustomMcpSnapshot(data: {
+	connectionId: string;
+	previous: string;
+	credential: string;
+	actionIds: string[];
+}): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const updated = await tx.connection.updateMany({
+				where: {id: data.connectionId, integrationId: 'custom-mcp', credential: data.previous},
+				data: {credential: data.credential},
+			});
+			if (!updated.count) return false;
+			await tx.agentGrant.deleteMany({
+				where: {connectionId: data.connectionId, actionId: {notIn: data.actionIds}},
+			});
+			return true;
+		}),
+	);
+}
+
+/** Serialize custom grant edits with snapshot refreshes, so stale approvals cannot be resurrected. */
+export async function setCustomMcpGrants(data: {
+	connectionId: string;
+	agentId: string;
+	previous: string;
+	actions: Record<string, boolean | null>;
+}): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			// This no-op update takes the same row lock as refresh, and checks its expected snapshot.
+			const locked = await tx.connection.updateMany({
+				where: {id: data.connectionId, integrationId: 'custom-mcp', credential: data.previous},
+				data: {credential: data.previous},
+			});
+			if (!locked.count) return false;
+			for (const [actionId, allowed] of Object.entries(data.actions)) {
+				if (allowed !== true) {
+					await tx.agentGrant.deleteMany({
+						where: {agentId: data.agentId, connectionId: data.connectionId, actionId},
+					});
+				} else {
+					await tx.agentGrant.upsert({
+						where: {
+							agentId_connectionId_actionId: {
+								agentId: data.agentId,
+								connectionId: data.connectionId,
+								actionId,
+							},
+						},
+						create: {
+							agentId: data.agentId,
+							connectionId: data.connectionId,
+							actionId,
+							allowed: true,
+						},
+						update: {allowed: true},
+					});
+				}
+			}
+			return true;
+		}),
+	);
+}
