@@ -18,6 +18,7 @@ import {
 import {handleDevLoginRoute} from '../auth/dev-login';
 import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
+import {handlePasswordLoginRoute} from '../auth/password';
 import {handleSignOutRoute} from '../auth/signout';
 import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
@@ -47,6 +48,7 @@ export function createApiRouter(): express.Router {
 	// are top-level navigations (302 redirects); the magic-link send, sign-out and dev login are
 	// writes from the web app, so they take the `requireBrowserOrigin` CSRF guard.
 	router.get('/auth/methods', handleSignInMethodsRoute);
+	router.post('/auth/password', requireBrowserOrigin, wrapAsyncRoute('Password sign-in route', handlePasswordLoginRoute));
 	router.get('/auth/google', wrapAsyncRoute('Google OAuth start route', handleGoogleStartRoute));
 	router.get('/auth/google/callback', wrapAsyncRoute('Google OAuth callback route', handleGoogleCallbackRoute));
 	router.post('/auth/email', requireBrowserOrigin, wrapAsyncRoute('Email sign-in route', handleEmailSignInRoute));

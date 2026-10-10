@@ -1,5 +1,9 @@
 import type {IncomingHttpHeaders} from 'node:http';
 
+import {isPasswordOwner} from '@proxy/db/owner-auth';
+import {env} from './env';
+import {ownerSessionPrefix} from '../auth/owner-password-config';
+
 import {getAuthenticatedSessionDatabase} from '@proxy/db/auth';
 import {ApiErr, type ApiError, getSessionTokenFromHeader} from '@proxy/utils';
 import {Err, Ok, type Result} from 'ts-results-es';
@@ -17,6 +21,10 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 		return Err(ApiErr.unauthenticated());
 	}
 
+	if (env.AUTH_MODE !== 'single-owner-password' && sessionToken.startsWith('owner.')) {
+		return Err(ApiErr.unauthenticated());
+	}
+
 	const sessionResult = await getAuthenticatedSessionDatabase(sessionToken);
 	if (sessionResult.isErr()) {
 		return sessionResult;
@@ -24,6 +32,19 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 
 	if (!sessionResult.value) {
 		return Err(ApiErr.unauthenticated());
+	}
+
+	if (env.AUTH_MODE === 'single-owner-password') {
+		if (!env.OWNER_USERNAME || !env.OWNER_PASSWORD_HASH || !sessionToken.startsWith(ownerSessionPrefix())) {
+			return Err(ApiErr.unauthenticated());
+		}
+		const owner = await isPasswordOwner(sessionResult.value.userId);
+		if (owner.isErr()) {
+			return owner;
+		}
+		if (!owner.value) {
+			return Err(ApiErr.unauthenticated());
+		}
 	}
 
 	return Ok({

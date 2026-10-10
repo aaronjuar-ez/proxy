@@ -21,7 +21,10 @@ mock.module('../observability/log', () => ({
 }));
 
 // Mutable so a test can flip NODE_ENV; the route reads it per request.
-const mockEnv: {NODE_ENV: string} = {
+const mockEnv: {
+	AUTH_MODE?: string;
+	NODE_ENV: string;
+} = {
 	NODE_ENV: 'development',
 };
 
@@ -46,6 +49,7 @@ const devUser = {id: 'user-dev', email: 'dev-abc@dev.proxy.local', name: 'Dev Us
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	mockEnv.AUTH_MODE = undefined;
 	mockEnv.NODE_ENV = 'development';
 	createUser.mockResolvedValue(Ok(devUser));
 	createSession.mockResolvedValue(Ok(undefined));
@@ -118,4 +122,14 @@ describe('handleDevLoginRoute', () => {
 		expect(res.json).toHaveBeenCalledWith({error: 'session_creation_failed'});
 		expect(res.cookies).toHaveLength(0);
 	});
+});
+
+test('owner mode disables alternate sign-in routes', async () => {
+	mockEnv.AUTH_MODE = 'single-owner-password';
+	const routes = await import('./dev-login');
+	{
+		const res = makeRes();
+		await routes.handleDevLoginRoute({} as never, res as never);
+		expect(res.status).toHaveBeenCalledWith(404);
+	}
 });

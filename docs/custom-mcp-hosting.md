@@ -33,7 +33,9 @@ Set these on the hosting platform, never in a committed file or Docker build arg
 | `ALLOWED_SIGNUP_EMAILS` | Owner addresses/domains, comma-separated; unset permits public signup |
 | `TELEMETRY_ENABLED`     | Optional; `false` disables the anonymous heartbeat                    |
 
-Use Google sign-in with `GOOGLE_CLIENT_ID` and secret `GOOGLE_CLIENT_SECRET`, and register `<APP_URL>/auth/google/callback`. Alternatively configure secret `RESEND_KEY` and `EMAIL_FROM` on a verified sender domain for magic links. Without Resend, the application writes magic links to logs; treat log access as sensitive and do not use this as the default shared-production login flow. Omit unused optional settings; this application treats empty environment values as unset.
+For a sole owner who prefers username/password, use [single-owner dashboard login](owner-password-login.md). It needs no email provider or Google setup; agent OAuth/bearer access stays separate. The email allowlist below applies only to the default standard mode.
+
+In standard mode, use Google sign-in with `GOOGLE_CLIENT_ID` and secret `GOOGLE_CLIENT_SECRET`, and register `<APP_URL>/auth/google/callback`. Alternatively configure secret `RESEND_KEY` and `EMAIL_FROM` on a verified sender domain for magic links. Without Resend, the application writes magic links to logs; treat log access as sensitive and do not use this as the default shared-production login flow. Omit unused optional settings; this application treats empty environment values as unset.
 
 **Do not regenerate `ENCRYPTION_KEY` when redeploying or moving hosts.** Changing or losing it makes stored encrypted credentials unreadable. Restore the matching key with database backups. Preview environments need separate secrets and a separate Neon branch/database, not access to live credentials.
 

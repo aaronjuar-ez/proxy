@@ -17,6 +17,11 @@ const DEV_USER_EMAIL_DOMAIN = 'dev.proxy.local';
  * exist.
  */
 export async function handleDevLoginRoute(_req: Request, res: Response): Promise<void> {
+	if (env.AUTH_MODE === 'single-owner-password') {
+		res.status(404).json({error: 'not_found'});
+		return;
+	}
+
 	if (env.NODE_ENV !== 'development') {
 		res.status(404).json({error: 'not_found'});
 		return;

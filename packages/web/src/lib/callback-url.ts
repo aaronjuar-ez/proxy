@@ -4,7 +4,11 @@ export function sanitizeCallbackUrl(raw: string | null): string | undefined {
 	if (!raw) {
 		return undefined;
 	}
-	if (!raw.startsWith('/')) {
+	// Browsers strip tabs and newlines from URLs before resolving their host.
+	if (
+		!raw.startsWith('/') ||
+		Array.from(raw).some((char) => char.charCodeAt(0) <= 32 || char.charCodeAt(0) === 127)
+	) {
 		return undefined;
 	}
 	if (raw.startsWith('//') || raw.startsWith('/\\')) {

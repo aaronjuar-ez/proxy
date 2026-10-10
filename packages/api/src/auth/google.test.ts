@@ -32,6 +32,7 @@ mock.module('../observability/log', () => ({
 
 // Mutable so a test can unset the OAuth config; the routes read env per request.
 const mockEnv: {
+	AUTH_MODE?: string;
 	NODE_ENV: string;
 	APP_URL: string | undefined;
 	GOOGLE_CLIENT_ID: string | undefined;
@@ -133,6 +134,7 @@ function makeCallbackRequest(args: {state: string; cookieHeader: string; code?: 
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	mockEnv.AUTH_MODE = undefined;
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.GOOGLE_CLIENT_ID = 'google-client-id';
 	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
@@ -152,12 +154,12 @@ describe('handleSignInMethodsRoute', () => {
 
 		const configured = makeRes();
 		handleSignInMethodsRoute({} as never, configured as never);
-		expect(configured.json).toHaveBeenCalledWith({google: true});
+		expect(configured.json).toHaveBeenCalledWith({google: true, password: false, email: true, dev: false});
 
 		mockEnv.GOOGLE_CLIENT_ID = undefined;
 		const unconfigured = makeRes();
 		handleSignInMethodsRoute({} as never, unconfigured as never);
-		expect(unconfigured.json).toHaveBeenCalledWith({google: false});
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false, password: false, email: true, dev: false});
 	});
 });
 
@@ -467,4 +469,19 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=Callback');
 		expect(createSession).not.toHaveBeenCalled();
 	});
+});
+
+test('owner mode disables alternate sign-in routes', async () => {
+	mockEnv.AUTH_MODE = 'single-owner-password';
+	const routes = await import('./google');
+	{
+		const res = makeRes();
+		await routes.handleGoogleStartRoute({} as never, res as never);
+		expect(res.status).toHaveBeenCalledWith(404);
+	}
+	{
+		const res = makeRes();
+		await routes.handleGoogleCallbackRoute({} as never, res as never);
+		expect(res.status).toHaveBeenCalledWith(404);
+	}
 });

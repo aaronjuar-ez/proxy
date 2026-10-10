@@ -26,13 +26,36 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 	);
 }
 
-const signInMethodsSchema = z.object({google: z.boolean()});
+const signInMethodsSchema = z.object({
+	password: z.boolean(),
+	email: z.boolean(),
+	google: z.boolean(),
+	dev: z.boolean(),
+});
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 
-/** The sign-in methods the api has set up besides the magic link, which always is. */
+/** The sign-in methods allowed by the server's configured authentication mode. */
 export function getSignInMethods() {
 	return httpRequest('/auth/methods', {method: 'GET'}, {schema: signInMethodsSchema});
+}
+
+/** Owner sign-in uses the ordinary human session cookie, never browser-stored credentials. */
+export function passwordSignIn(username: string, password: string, signal: AbortSignal) {
+	return httpRequest(
+		'/auth/password',
+		{
+			method: 'POST',
+			headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({username, password}),
+			signal,
+		},
+		{
+			schema: z.union([z.object({ok: z.literal(true)}), z.object({error: z.string()})]),
+			allowStatus: (status) => status === 200 || status === 401 || status === 429,
+			timeoutMs: 15_000,
+		},
+	);
 }
 
 /** The full-page navigation that starts Google sign-in; the api redirects back when done. */

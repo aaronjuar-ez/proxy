@@ -56,12 +56,12 @@ async function humanLoader() {
 	return me;
 }
 
-// A signed-in user has no business on the login page; anything else, an api outage included,
-// shows the form, with Google unless the api says it is not set up.
+// A signed-in user returns to their destination. If methods cannot be loaded, fail closed
+// rather than offering a method that may be disabled by the server's authentication mode.
 async function loginLoader({request}: {request: Request}): Promise<SignInMethods> {
 	const [me, methods] = await Promise.all([getMe(), getSignInMethods()]);
 	if (me.isErr()) {
-		return methods.unwrapOr({google: true});
+		return methods.unwrapOr({password: false, email: false, google: false, dev: false});
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));

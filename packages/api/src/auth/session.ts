@@ -68,7 +68,7 @@ export function sanitizeCallbackUrl(raw: string | undefined): string | undefined
 		return undefined;
 	}
 
-	if (!raw.startsWith('/')) {
+	if (!raw.startsWith('/') || /[\u0000-\u0020\u007f]/.test(raw)) {
 		return undefined;
 	}
 
@@ -108,8 +108,8 @@ export function queryParam(req: Request, name: string): string | null {
 }
 
 /** Signs the browser in: a Session row and the cookie pointing at it. */
-export async function establishSession(res: Response, userId: string): Promise<Result<void, ApiError>> {
-	const sessionToken = randomBytes(32).toString('hex');
+export async function establishSession(res: Response, userId: string, tokenPrefix = ''): Promise<Result<void, ApiError>> {
+	const sessionToken = tokenPrefix + randomBytes(32).toString('hex');
 	const expires = new Date(Date.now() + sessionMaxAgeSeconds * 1000);
 	const sessionResult = await createSession({sessionToken, userId, expires});
 	if (sessionResult.isOk()) {

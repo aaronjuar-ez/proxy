@@ -40,6 +40,7 @@ mock.module('../observability/log', () => ({
 
 // Mutable so tests can flip values; the routes read env per request.
 const mockEnv: {
+	AUTH_MODE?: string;
 	NODE_ENV: string;
 	APP_URL: string | undefined;
 	AUTH_SECRET: string | undefined;
@@ -108,6 +109,7 @@ const storedRow = () => createVerificationToken.mock.calls[0]?.[0] as {identifie
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	mockEnv.AUTH_MODE = undefined;
 	mockEnv.NODE_ENV = 'production';
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.AUTH_SECRET = 'test-secret';
@@ -510,4 +512,19 @@ describe('handleEmailVerifyRoute', () => {
 		expect(bare.json).toHaveBeenCalledWith({error: 'email_auth_not_configured'});
 		expect(bare.redirect).not.toHaveBeenCalled();
 	});
+});
+
+test('owner mode disables alternate sign-in routes', async () => {
+	mockEnv.AUTH_MODE = 'single-owner-password';
+	const routes = await import('./email');
+	{
+		const res = makeRes();
+		await routes.handleEmailSignInRoute({} as never, res as never);
+		expect(res.status).toHaveBeenCalledWith(404);
+	}
+	{
+		const res = makeRes();
+		await routes.handleEmailVerifyRoute({} as never, res as never);
+		expect(res.status).toHaveBeenCalledWith(404);
+	}
 });
