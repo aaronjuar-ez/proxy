@@ -6,6 +6,7 @@ import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/uti
 import {getConnectionWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import {decryptSecret} from '../../utils/secret-crypto';
 import type {UpstreamTool} from './client';
+import {oauthSettingsSchema, oauthTokensSchema} from './oauth-protocol';
 
 export const CUSTOM_MCP = 'custom-mcp';
 const jsonObject = z.record(z.string(), z.unknown());
@@ -17,7 +18,15 @@ export const upstreamToolSchema = z.object({
 	outputSchema: jsonObject.optional(),
 	annotations: jsonObject.optional(),
 });
-export const storedSchema = z.object({version: z.literal(1), url: z.string().url(), bearerToken: z.string().optional(), tools: z.array(upstreamToolSchema).max(500)});
+export const storedSchema = z
+	.object({
+		version: z.literal(1),
+		url: z.string().url(),
+		bearerToken: z.string().optional(),
+		oauth: z.object({settings: oauthSettingsSchema, tokens: oauthTokensSchema}).optional(),
+		tools: z.array(upstreamToolSchema).max(500),
+	})
+	.refine((config) => !config.oauth || (!config.bearerToken && config.oauth.settings.resource === config.url));
 export type StoredMcp = z.infer<typeof storedSchema>;
 
 // Stable across object key order, but any metadata/schema change requires a fresh human grant.
@@ -49,5 +58,10 @@ export function loadCustomMcp(orgId: string, connectionId: string): Promise<Resu
 	});
 }
 export function publicMcp(config: StoredMcp) {
-	return {url: config.url, tools: config.tools.map((tool) => ({...tool, actionId: toolActionId(tool)}))};
+	return {
+		url: config.url,
+		authType: config.oauth ? ('oauth' as const) : config.bearerToken ? ('bearer' as const) : ('none' as const),
+		...(config.oauth ? {oauth: {issuer: config.oauth.settings.issuer, clientId: config.oauth.settings.clientId}} : {}),
+		tools: config.tools.map((tool) => ({...tool, actionId: toolActionId(tool)})),
+	};
 }
