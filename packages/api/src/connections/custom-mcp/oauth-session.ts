@@ -20,8 +20,13 @@ const EXPIRY_SKEW_MS = 60_000;
 const REFRESH_LEASE_MS = 60_000;
 
 function expiring(config: StoredMcp): boolean {
-	const expiresAt = config.oauth?.tokens.expiresAt;
-	return expiresAt !== undefined && expiresAt <= Date.now() + EXPIRY_SKEW_MS;
+	const tokens = config.oauth?.tokens;
+	if (tokens?.expiresAt === undefined) {
+		return false;
+	}
+	// Older records have no issuance time. Once refreshed they use the proportional margin too.
+	const margin = tokens.issuedAt === undefined ? EXPIRY_SKEW_MS : Math.min(EXPIRY_SKEW_MS, Math.max(0, tokens.expiresAt - tokens.issuedAt) * 0.1);
+	return tokens.expiresAt <= Date.now() + margin;
 }
 
 export function upstreamConfig(config: StoredMcp): UpstreamConfig {

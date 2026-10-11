@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, mock, setSystemTime, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {ConnectionRow} from '@proxy/db/connection';
@@ -16,7 +16,8 @@ const settings: OAuthSettings = {
 	clientId: 'client-1',
 	tokenEndpointAuthMethod: 'none',
 };
-const fresh: OAuthTokens = {accessToken: 'fresh-access', refreshToken: 'fresh-refresh', expiresAt: Date.now() + 3_600_000};
+const now = 1_800_000_000_000;
+const fresh: OAuthTokens = {accessToken: 'fresh-access', refreshToken: 'fresh-refresh', issuedAt: now, expiresAt: now + 3_600_000};
 let current: Prepared;
 const loadCustomMcp = mock(async (): Promise<Result<Prepared, ApiError>> => Ok(structuredClone(current)));
 const acquireCustomMcpOAuthRefresh = mock(async (): Promise<Result<CustomMcpRefreshLease, ApiError>> => Ok('acquired'));
@@ -40,6 +41,7 @@ function setup(tokens: OAuthTokens = {accessToken: 'old-access', refreshToken: '
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	setSystemTime(now);
 	current = setup();
 	loadCustomMcp.mockImplementation(async () => Ok(structuredClone(current)));
 	acquireCustomMcpOAuthRefresh.mockImplementation(async () => Ok('acquired'));
@@ -50,6 +52,10 @@ beforeEach(() => {
 	});
 	refreshOAuthTokens.mockImplementation(async () => Ok(fresh));
 	encryptSecret.mockImplementation((plain) => Ok(`enc:${plain}`));
+});
+
+afterEach(() => {
+	setSystemTime();
 });
 
 describe('prepareCustomMcp', () => {
@@ -67,6 +73,63 @@ describe('prepareCustomMcp', () => {
 		}
 		expect(refreshOAuthTokens).not.toHaveBeenCalled();
 		expect(upstreamConfig(current.config)).toEqual({url: settings.resource, bearerToken: 'no-expiry'});
+	});
+
+	test('30-second tokens remain usable across repeated requests until their final three seconds', async () => {
+		const tokens = {...fresh, expiresAt: now + 30_000};
+		current = setup(tokens);
+		for (const elapsed of [0, 10_000, 26_999]) {
+			setSystemTime(now + elapsed);
+			expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(tokens);
+		}
+		expect(refreshOAuthTokens).not.toHaveBeenCalled();
+		expect(acquireCustomMcpOAuthRefresh).not.toHaveBeenCalled();
+		setSystemTime(now + 27_000);
+		expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(fresh);
+		expect(refreshOAuthTokens).toHaveBeenCalledTimes(1);
+	});
+
+	test('a refreshed 30-second token retains its issuance time and is reused on later requests', async () => {
+		const tokens = {...fresh, expiresAt: now + 30_000};
+		refreshOAuthTokens.mockResolvedValue(Ok(tokens));
+		for (const elapsed of [0, 1000, 2000]) {
+			setSystemTime(now + elapsed);
+			expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(tokens);
+		}
+		expect(refreshOAuthTokens).toHaveBeenCalledTimes(1);
+		expect(completeCustomMcpOAuthRefresh).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(current.connection.credential!.slice(4)).oauth.tokens.issuedAt).toBe(now);
+	});
+
+	test('long-lived tokens retain the 60-second maximum expiry margin', async () => {
+		current = setup(fresh);
+		setSystemTime(fresh.expiresAt! - 60_001);
+		expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(fresh);
+		expect(refreshOAuthTokens).not.toHaveBeenCalled();
+		setSystemTime(fresh.expiresAt! - 60_000);
+		expect((await prepareCustomMcp('o-1', 'c-1')).isOk()).toBe(true);
+		expect(refreshOAuthTokens).toHaveBeenCalledTimes(1);
+	});
+
+	test('legacy tokens without an issuance time retain their 60-second expiry margin', async () => {
+		current = setup({accessToken: 'legacy-access', refreshToken: 'legacy-refresh', expiresAt: now + 60_001});
+		expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens.accessToken).toBe('legacy-access');
+		expect(refreshOAuthTokens).not.toHaveBeenCalled();
+		setSystemTime(now + 1);
+		expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(fresh);
+		expect(refreshOAuthTokens).toHaveBeenCalledTimes(1);
+	});
+
+	test('tokens with issuance times refresh at or after expiry, including zero lifetime', async () => {
+		for (const tokens of [
+			{...fresh, issuedAt: now - 30_000, expiresAt: now},
+			{...fresh, issuedAt: now - 31_000, expiresAt: now - 1000},
+			{...fresh, expiresAt: now},
+		]) {
+			current = setup(tokens);
+			expect((await prepareCustomMcp('o-1', 'c-1')).unwrap().config.oauth?.tokens).toEqual(fresh);
+		}
+		expect(refreshOAuthTokens).toHaveBeenCalledTimes(3);
 	});
 
 	test('expiring tokens are encrypted, CAS persisted under the lease and reread', async () => {

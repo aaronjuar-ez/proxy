@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, mock, setSystemTime, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 import type {OAuthHttpResponse} from './oauth-http';
 
@@ -7,6 +7,7 @@ mock.module('node:dns/promises', () => ({lookup: async (hostname: string) => [{a
 const http = await import('./oauth-http');
 let replies: OAuthHttpResponse[] = [];
 let sent: {url: string; options: Parameters<typeof http.oauthHttpRequest>[1]}[] = [];
+let responseElapsedMs = 0;
 mock.module('./oauth-http', () => ({
 	...http,
 	oauthHttpRequest: async (url: string, options?: Parameters<typeof http.oauthHttpRequest>[1]) => {
@@ -15,6 +16,7 @@ mock.module('./oauth-http', () => ({
 		if (validation.isErr()) {
 			return validation;
 		}
+		setSystemTime(Date.now() + responseElapsedMs);
 		return Ok(replies.shift() ?? {status: 404, headers: {}, body: ''});
 	},
 }));
@@ -48,11 +50,18 @@ const json = (value: object, status = 200): OAuthHttpResponse => ({status, heade
 const unauthorized = (challenge?: string): OAuthHttpResponse => ({status: 401, headers: challenge ? {'www-authenticate': challenge} : {}, body: ''});
 const tokenResponse = {access_token: 'access-secret', refresh_token: 'refresh-secret', token_type: 'Bearer', expires_in: 3600};
 const registeredClient = {client_id: 'new-public-client', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none'};
+const now = 1_800_000_000_000;
 
 beforeEach(() => {
+	setSystemTime(now);
 	blockedHost = undefined;
 	replies = [];
 	sent = [];
+	responseElapsedMs = 0;
+});
+
+afterEach(() => {
+	setSystemTime();
 });
 
 describe('custom MCP OAuth discovery', () => {
@@ -238,13 +247,11 @@ describe('custom MCP OAuth client', () => {
 		expect(createOAuthAuthorizationUrl(settings, {redirectUri: 'http://localhost:4000/callback', state: 'state', codeChallenge: 'c'.repeat(43)}).isOk()).toBe(true);
 		expect(sent).toHaveLength(0);
 	});
-	test('exchanges with resource and PKCE in form body, and stores millisecond expiry', async () => {
+	test('exchanges with resource and PKCE in form body, and stores issuance and millisecond expiry', async () => {
 		replies = [json(tokenResponse)];
-		const before = Date.now();
 		const tokens = (await exchangeOAuthCode(settings, {code: 'code-secret', codeVerifier: verifier, redirectUri})).unwrap();
-		expect(tokens).toMatchObject({accessToken: 'access-secret', refreshToken: 'refresh-secret'});
-		expect(tokens.expiresAt!).toBeGreaterThanOrEqual(before + 3600_000);
-		expect(tokens.expiresAt!).toBeLessThanOrEqual(Date.now() + 3600_000);
+		expect(tokens).toEqual({accessToken: 'access-secret', refreshToken: 'refresh-secret', issuedAt: now, expiresAt: now + 3_600_000});
+		expect(oauthTokensSchema.parse(JSON.parse(JSON.stringify(tokens)))).toEqual(tokens);
 		expect(sent[0]!.options!.contentType).toBe('application/x-www-form-urlencoded');
 		expect(Object.fromEntries(new URLSearchParams(sent[0]!.options!.body))).toEqual({
 			grant_type: 'authorization_code',
@@ -254,6 +261,13 @@ describe('custom MCP OAuth client', () => {
 			client_id: settings.clientId,
 			resource,
 		});
+	});
+	test('short token lifetime starts before the request so network latency cannot extend expiry', async () => {
+		responseElapsedMs = 2000;
+		replies = [json({...tokenResponse, expires_in: 30})];
+		const tokens = (await exchangeOAuthCode(settings, {code: 'code-secret', codeVerifier: verifier, redirectUri})).unwrap();
+		expect(Date.now()).toBe(now + 2000);
+		expect(tokens).toMatchObject({issuedAt: now, expiresAt: now + 30_000});
 	});
 	test('sends POST client secrets only in token and refresh bodies', async () => {
 		const confidential = {...settings, tokenEndpointAuthMethod: 'client_secret_post' as const, clientSecret: 'client-secret'};
@@ -283,12 +297,13 @@ describe('custom MCP OAuth client', () => {
 		expect(sent).toHaveLength(0);
 	});
 	test('rotates refresh tokens, preserves omitted refresh tokens, and never preserves stale expiry', async () => {
-		const current = {accessToken: 'old-access', refreshToken: 'old-refresh', expiresAt: 123};
+		const current = {accessToken: 'old-access', refreshToken: 'old-refresh', issuedAt: 0, expiresAt: 123};
 		replies = [json(tokenResponse)];
-		expect((await refreshOAuthTokens(settings, current)).unwrap().refreshToken).toBe('refresh-secret');
+		expect((await refreshOAuthTokens(settings, current)).unwrap()).toMatchObject({refreshToken: 'refresh-secret', issuedAt: now, expiresAt: now + 3_600_000});
 		expect(Object.fromEntries(new URLSearchParams(sent[0]!.options!.body))).toEqual({grant_type: 'refresh_token', refresh_token: 'old-refresh', client_id: settings.clientId, resource});
+		setSystemTime(now + 5000);
 		replies = [json({access_token: 'new-access', token_type: 'bearer'})];
-		expect((await refreshOAuthTokens(settings, current)).unwrap()).toEqual({accessToken: 'new-access', refreshToken: 'old-refresh', expiresAt: undefined});
+		expect((await refreshOAuthTokens(settings, current)).unwrap()).toEqual({accessToken: 'new-access', refreshToken: 'old-refresh', issuedAt: now + 5000, expiresAt: undefined});
 	});
 	test('rejects invalid grants without provider details and refuses unsafe tokens', async () => {
 		replies = [json({error: 'invalid_grant', error_description: 'never-log-this'}, 400)];
@@ -307,6 +322,10 @@ describe('custom MCP OAuth client', () => {
 		expect(oauthSettingsSchema.safeParse({...settings, clientSecret: 'secret'}).success).toBe(false);
 		expect(oauthSettingsSchema.safeParse({...settings, tokenEndpointAuthMethod: 'client_secret_post'}).success).toBe(false);
 		expect(oauthSettingsSchema.safeParse({...settings, tokenEndpointAuthMethod: undefined}).success).toBe(true);
+		expect(oauthTokensSchema.safeParse({accessToken: 'legacy-access', expiresAt: now}).success).toBe(true);
+		for (const issuedAt of [-1, Infinity, NaN]) {
+			expect(oauthTokensSchema.safeParse({accessToken: 'access', issuedAt}).success).toBe(false);
+		}
 		expect(oauthTokensSchema.safeParse({accessToken: 'access', expiresAt: Infinity}).success).toBe(false);
 		expect(oauthTokensSchema.safeParse({accessToken: 'access\n'}).success).toBe(false);
 	});

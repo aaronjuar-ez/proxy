@@ -56,7 +56,12 @@ export const oauthSettingsSchema = metadataSchema
 	.refine((settings) => (settings.tokenEndpointAuthMethod === 'none' ? settings.clientSecret === undefined : settings.clientSecret !== undefined), {
 		message: 'OAuth client authentication does not match the registered client.',
 	});
-export const oauthTokensSchema = z.object({accessToken: tokenSchema, refreshToken: tokenSchema.optional(), expiresAt: z.number().finite().nonnegative().optional()});
+export const oauthTokensSchema = z.object({
+	accessToken: tokenSchema,
+	refreshToken: tokenSchema.optional(),
+	issuedAt: z.number().finite().nonnegative().optional(),
+	expiresAt: z.number().finite().nonnegative().optional(),
+});
 export type OAuthSettings = z.infer<typeof oauthSettingsSchema>;
 export type OAuthTokens = z.infer<typeof oauthTokensSchema>;
 export type OAuthMetadata = z.infer<typeof metadataSchema>;
@@ -367,6 +372,8 @@ function tokenRequest(settings: OAuthSettings, parameters: Record<string, string
 		const formEncode = (value: string) => new URLSearchParams({v: value}).toString().slice(2);
 		const authorization =
 			settings.tokenEndpointAuthMethod === 'client_secret_basic' ? `Basic ${Buffer.from(`${formEncode(settings.clientId)}:${formEncode(settings.clientSecret!)}`).toString('base64')}` : undefined;
+		// Include request time in the lifetime rather than extending expiry by network latency.
+		const issuedAt = Date.now();
 		const response = $(
 			await oauthHttpRequest(settings.tokenEndpoint, {
 				method: 'POST',
@@ -401,7 +408,8 @@ function tokenRequest(settings: OAuthSettings, parameters: Record<string, string
 		return {
 			accessToken: token.access_token,
 			refreshToken: token.refresh_token ?? previousRefreshToken,
-			expiresAt: token.expires_in === undefined ? undefined : Date.now() + token.expires_in * 1000,
+			issuedAt,
+			expiresAt: token.expires_in === undefined ? undefined : issuedAt + token.expires_in * 1000,
 		};
 	});
 }

@@ -493,3 +493,17 @@ test('callback discovery error stays retryable without exposing server details',
 	expect(screen.getByRole('button', {name: 'Find callback URL'})).toHaveProperty('disabled', false);
 	expect(document.body.textContent).not.toContain('private-provider-details');
 });
+
+test.each(['http://localhost:5173', 'http://127.0.0.1:5173', 'http://[::1]:5173'])(
+	'callback discovery accepts a local development callback on %s',
+	async (origin) => {
+		const redirectUri = `${origin}/api/connections/custom-mcp/oauth/callback/issuer-specific-key`;
+		respond(async () => Response.json({...registration, redirectUri}));
+		render(<ConnectCustomMcpForm onConnected={mock()} />);
+		fillServer();
+		await chooseAuth('OAuth');
+		fireEvent.click(screen.getByRole('button', {name: 'Find callback URL'}));
+		expect(await screen.findByLabelText('Callback URL')).toHaveProperty('value', redirectUri);
+		expect(screen.queryByRole('alert')).toBeNull();
+	},
+);
