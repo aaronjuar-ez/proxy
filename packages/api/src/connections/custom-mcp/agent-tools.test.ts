@@ -7,12 +7,15 @@ const logAgentRequest = mock();
 const discoverTools = mock();
 const callUpstreamTool = mock();
 const getAgent = mock();
+const prepareCustomMcp = mock();
 const getConnectionWithCredential = mock();
 mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 mock.module('@proxy/db/connection', () => ({getConnectionWithCredential}));
 mock.module('@proxy/db/agent', () => ({getAgent}));
-mock.module('../../utils/secret-crypto', () => ({decryptSecret: (value: string) => Ok(value)}));
+mock.module('../../utils/secret-crypto', () => ({decryptSecret: (value: string) => Ok(value), encryptSecret: (value: string) => Ok(value)}));
 mock.module('./client', () => ({discoverTools, callUpstreamTool}));
+const session = await import('./oauth-session');
+mock.module('./oauth-session', () => ({...session, prepareCustomMcp}));
 const {toolActionId} = await import('./store');
 const {customActions, listCustomAgentTools, runCustomAgentTool} = await import('./agent-tools');
 const tool = {
@@ -67,7 +70,7 @@ describe('custom MCP authorization and audit', () => {
 	test('passes JSON values and preserves all upstream result content', async () => {
 		const args = {tasks: [{done: true, priority: 3, due: null}], dryRun: false};
 		const result = (await runCustomAgentTool(caller, agent, connection, tool.name, args, {readOnly: false})).unwrap();
-		expect(callUpstreamTool).toHaveBeenCalledWith(config, tool.name, args, expect.any(Function));
+		expect(callUpstreamTool).toHaveBeenCalledWith({url: config.url, bearerToken: config.bearerToken}, tool.name, args, expect.any(Function));
 		expect(result.upstream).toMatchObject({content: [{type: 'image'}], structuredContent: {count: 1}});
 		expect(logAgentRequest.mock.calls[0]![0]).toMatchObject({outcome: 'allowed', action: tool.name});
 	});
@@ -114,4 +117,51 @@ describe('custom MCP authorization and audit', () => {
 		expect(toolActionId({name: 'x', inputSchema: {type: 'object', properties: {}}})).toBe(toolActionId({inputSchema: {properties: {}, type: 'object'}, name: 'x'}));
 		expect(toolActionId(tool)).not.toBe(toolActionId({...tool, outputSchema: {type: 'object', required: ['a']}}));
 	});
+});
+
+const oauthConfig = {
+	version: 1 as const,
+	url: config.url,
+	tools: [tool],
+	oauth: {
+		settings: {
+			resource: config.url,
+			issuer: 'https://auth.example.com',
+			authorizationEndpoint: 'https://auth.example.com/authorize',
+			tokenEndpoint: 'https://auth.example.com/token',
+			clientId: 'client-1',
+			tokenEndpointAuthMethod: 'none' as const,
+		},
+		tokens: {accessToken: 'old-access', refreshToken: 'refresh-secret', expiresAt: 1},
+	},
+};
+const oauthConnection = {...connection, credential: JSON.stringify(oauthConfig)};
+test('OAuth execution uses freshly persisted token and rechecks its credential before dispatch', async () => {
+	const refreshed = {...oauthConfig, oauth: {...oauthConfig.oauth, tokens: {...oauthConfig.oauth.tokens, accessToken: 'new-access'}}};
+	const updatedConnection = {...connection, credential: JSON.stringify(refreshed)};
+	prepareCustomMcp.mockResolvedValue(Ok({connection: updatedConnection, config: refreshed}));
+	getConnectionWithCredential.mockResolvedValue(Ok(updatedConnection));
+	callUpstreamTool.mockImplementation(async (_config, _name, _args, beforeCall) => {
+		const allowed = await beforeCall();
+		return allowed.isErr() ? allowed : Ok({content: []});
+	});
+	expect((await runCustomAgentTool(caller, agent, oauthConnection, tool.name, {}, {})).isOk()).toBe(true);
+	expect(discoverTools.mock.calls[0]![0]).toEqual({url: config.url, bearerToken: 'new-access'});
+	expect(callUpstreamTool.mock.calls[0]![0]).toEqual({url: config.url, bearerToken: 'new-access'});
+});
+test('OAuth may refresh rejected discovery but never retries a rejected tool call', async () => {
+	prepareCustomMcp.mockResolvedValue(Ok({connection: oauthConnection, config: oauthConfig}));
+	discoverTools.mockResolvedValueOnce(Err(ApiErr.credentialsRejected())).mockResolvedValueOnce(Ok([tool]));
+	callUpstreamTool.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+	const result = await runCustomAgentTool(caller, agent, oauthConnection, tool.name, {}, {});
+	expect(result.unwrapErr().kind).toBe('credentials_rejected');
+	expect(prepareCustomMcp).toHaveBeenCalledTimes(2);
+	expect(prepareCustomMcp.mock.calls[1]).toEqual([caller.agent.orgId, connection.id, true]);
+	expect(callUpstreamTool).toHaveBeenCalledTimes(1);
+});
+test('OAuth expiry never bypasses denied grants to refresh or contact the provider', async () => {
+	const result = await runCustomAgentTool(caller, {...agent, grants: []}, oauthConnection, tool.name, {}, {});
+	expect(result.unwrapErr().kind).toBe('forbidden');
+	expect(prepareCustomMcp).not.toHaveBeenCalled();
+	expect(discoverTools).not.toHaveBeenCalled();
 });

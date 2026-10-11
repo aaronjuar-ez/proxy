@@ -37,7 +37,8 @@ const email: Connection = {
 	account: 'person@example.com',
 	defaults: ['read'],
 };
-const metadata = {
+const metadata: NonNullable<Connection['customMcp']> = {
+	authType: 'none',
 	url: 'https://example.com/mcp',
 	tools: [{name: 'search', actionId: 'tool-v1', inputSchema: {type: 'object'}}],
 };

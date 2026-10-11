@@ -134,12 +134,24 @@ export async function refreshCustomMcpSnapshot(data: {
 	previous: string;
 	credential: string;
 	actionIds: string[];
+	/** Only a fresh, authenticated OAuth reconnect may supersede a refresh lease. */
+	reconnectOAuth?: boolean;
 }): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
 			const updated = await tx.connection.updateMany({
-				where: {id: data.connectionId, integrationId: 'custom-mcp', credential: data.previous},
-				data: {credential: data.credential},
+				where: {
+					id: data.connectionId,
+					integrationId: 'custom-mcp',
+					credential: data.previous,
+					...(data.reconnectOAuth ? {} : {customMcpRefreshLeaseId: null}),
+				},
+				data: {
+					credential: data.credential,
+					...(data.reconnectOAuth
+						? {customMcpRefreshLeaseId: null, customMcpRefreshLeaseExpiresAt: null}
+						: {}),
+				},
 			});
 			if (!updated.count) return false;
 			await tx.agentGrant.deleteMany({

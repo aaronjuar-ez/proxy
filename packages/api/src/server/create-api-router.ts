@@ -1,3 +1,4 @@
+import {handleStartCustomMcpOAuth, handleCustomMcpOAuthCallback, handleDiscoverCustomMcpOAuth} from '../connections/custom-mcp/oauth-route';
 import express from 'express';
 import {handleCreateCustomMcpRoute, handleGetCustomMcpRoute, handleRefreshCustomMcpRoute} from '../connections/custom-mcp/route';
 
@@ -70,6 +71,9 @@ export function createApiRouter(): express.Router {
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
 	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
 	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
+	router.post('/api/connections/custom-mcp/oauth/discover', withAuthResult('Discover custom MCP OAuth route', handleDiscoverCustomMcpOAuth));
+	router.post('/api/connections/custom-mcp/oauth/start', withAuth('Start custom MCP OAuth route', handleStartCustomMcpOAuth));
+	router.get('/api/connections/custom-mcp/oauth/callback/:issuerKey', withAuth('Custom MCP OAuth callback route', handleCustomMcpOAuthCallback));
 	router.post('/api/connections/custom-mcp', withAuthResult('Connect custom MCP route', handleCreateCustomMcpRoute));
 	router.get('/api/connections/:connectionId/custom-mcp', withAuthResult('Get custom MCP route', handleGetCustomMcpRoute));
 	router.post('/api/connections/:connectionId/custom-mcp/refresh', withAuthResult('Refresh custom MCP route', handleRefreshCustomMcpRoute));

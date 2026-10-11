@@ -4,6 +4,7 @@
 	"version": "0.0.0",
 	"type": "module",
 	"exports": {
+		"./custom-mcp-oauth": "./src/custom-mcp-oauth.ts",
 		".": "./src/index.ts",
 		"./agent": "./src/agent.ts",
 		"./audit": "./src/audit.ts",

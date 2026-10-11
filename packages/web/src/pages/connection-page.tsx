@@ -35,6 +35,7 @@ export function ConnectionPage() {
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
+	const reconnected = searchParams.get('oauth') === 'connected';
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const integration = connection && integrationOf(connection);
@@ -72,9 +73,23 @@ export function ConnectionPage() {
 						Connection added successfully
 					</p>
 				)}
+				{reconnected && connection.customMcp?.authType === 'oauth' && (
+					<p
+						role="status"
+						className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-sm text-green-700 dark:text-green-400"
+					>
+						<CircleCheckIcon className="size-4 shrink-0" />
+						OAuth reconnected. All tools are blocked; review and grant them again on each agent’s
+						page.
+					</p>
+				)}
 				<Section title="Permissions">
 					{connection.integrationId === 'custom-mcp' ? (
-						<CustomMcpTools connection={connection} />
+						<CustomMcpTools
+							key={connection.id}
+							connection={connection}
+							oauthFailed={searchParams.get('oauth') === 'failed'}
+						/>
 					) : (
 						<ConnectionAccess
 							actions={integration.actions}

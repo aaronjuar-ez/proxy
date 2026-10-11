@@ -31,9 +31,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  accounts   Account[]
-  sessions   Session[]
-  orgMembers OrgMember[]
+  accounts               Account[]
+  sessions               Session[]
+  orgMembers             OrgMember[]
+  customMcpOAuthAttempts CustomMcpOAuthAttempt[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account.
@@ -89,19 +90,20 @@ model VerificationToken {
 // Every user gets one organization at sign-up, for when data is shared between people. Nothing
 // reads it yet.
 model Organization {
-  id   String @id @default(cuid())
-  name String
-  slug String @unique
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
   // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
   onboardedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  members     OrgMember[]
-  connections Connection[]
-  agents      Agent[]
-  audit       AuditEntry[]
+  members                OrgMember[]
+  connections            Connection[]
+  agents                 Agent[]
+  audit                  AuditEntry[]
+  customMcpOAuthAttempts CustomMcpOAuthAttempt[]
 }
 
 model OrgMember {
@@ -124,14 +126,17 @@ model OrgMember {
 // also has one built-in Information connection, made with it, whose records live in
 // Personal Agent Proxy.
 model Connection {
-  id            String  @id @default(cuid())
-  orgId         String
-  integrationId String
+  id                             String    @id @default(cuid())
+  orgId                          String
+  integrationId                  String
   // The account as the provider names it, such as an email address; the organization's name for
   // Information.
-  account       String
+  account                        String
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
-  credential    String?
+  credential                     String?
+  // A refresh is never retried after its owner disappears: a rotating token may already be spent.
+  customMcpRefreshLeaseId        String?
+  customMcpRefreshLeaseExpiresAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -332,4 +337,22 @@ model OAuthGrant {
 
   @@index([clientId])
   @@index([agentId])
+}
+
+// A browser OAuth handshake, bound to its signed-in user and organization. State is a SHA-256;
+// payload contains only an encrypted PKCE verifier and discovered provider configuration.
+model CustomMcpOAuthAttempt {
+  stateHash String   @id
+  userId    String
+  orgId     String
+  payload   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([expiresAt])
 }

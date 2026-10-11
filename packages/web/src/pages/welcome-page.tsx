@@ -15,6 +15,7 @@ import {Button} from '@proxy/ui/components/button';
 import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {signInFailedMessage} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
+import {CUSTOM_MCP_OAUTH_FAILED} from '@/hooks/use-custom-mcp-oauth';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
 
@@ -29,6 +30,7 @@ type Step = 'agent' | 'connections' | 'email' | 'custom-mcp';
 export function WelcomePage({step}: {step: Step}) {
 	const {agents, connections} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
+	const [params] = useSearchParams();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const agentName = agentNameOf(agents);
@@ -67,7 +69,11 @@ export function WelcomePage({step}: {step: Step}) {
 					<StepHeading title="Connect an MCP server">
 						Discover tools, then grant each one on an agent’s page after setup.
 					</StepHeading>
-					<ConnectCustomMcpForm onConnected={() => navigate('/welcome/connections')} />
+					<ConnectCustomMcpForm
+						returnTo="welcome"
+						initialError={params.get('oauth') === 'failed' ? CUSTOM_MCP_OAUTH_FAILED : undefined}
+						onConnected={() => navigate('/welcome/connections')}
+					/>
 					<Link to="/welcome/connections" className="text-sm underline">
 						Back
 					</Link>

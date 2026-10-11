@@ -35,3 +35,21 @@ New coverage includes:
 - Docker is not installed in the local workspace. Image builds are validated by GitHub Actions; actual Vercel runtime deployment remains unverified.
 
 Before production, run an authorized smoke test with a disposable MCP server and database: connect, grant one tool, execute, revoke during a slow discovery, refresh changed schemas, and confirm that stale/reverted approvals never restore access. Check login delivery, external HTTPS, migrations, instance concurrency, request deadlines, secret retention and database backups.
+
+## OAuth support validation (2026-10-11)
+
+Implemented on top of merged custom-MCP main commit `67b3cbf`.
+
+- Aggregate `bun run typecheck`: all packages pass.
+- Aggregate `bun run test`: 574 tests pass (419 API, 33 DB, 64 web, 26 integrations, 32 utilities).
+- `bun run lint`: passes; existing Fast Refresh warning in `agent-collection-page.tsx` remains.
+- `bun run build`: web, docs and website production builds pass; existing web bundle-size warning remains.
+- All 14 migrations apply in an in-memory PGlite database. Concurrent refresh lease acquisitions and single-use callback consumption each have only one winner.
+- OAuth tests cover protected-resource/authorization metadata binding and discovery fallback, confidential/public client registration, PKCE/resource parameters, issuer-specific callbacks, state expiry/replay/owner/browser binding, callback cancellation, token/secret redaction, refresh rotation/concurrency/lost responses, reconnect fencing and grant removal.
+- Transport tests cover public DNS validation and socket pinning, real TLS socket behavior, redirect refusal, response-size/time limits, and no automatic mutating-tool replay.
+- UI tests cover auth modes, callback lookup, optional public client IDs, onboarding, reconnect warnings, provider errors, duplicate clicks, interrupted navigation and browser Back.
+- Independent security review found and resolved a shared-callback issuer mix-up risk; each issuer now has its own exact registered callback URI, consistent with RFC 9700 section 4.4.2.2.
+
+Read-only Vercel metadata inspection confirmed the canonical resource `https://mcp.vercel.com/`, issuer `https://vercel.com`, PKCE S256, and confidential-client authentication. The implementation supports dynamic registration using advertised `client_secret_post` or `client_secret_basic` as well as public clients. No real registration, provider approval, account grant or production deployment was performed. Provider approval can still prevent a particular connection, and a complete real-account Vercel authorization remains unverified. Direct DNS-based live transport testing is limited by this execution environment; public metadata was inspected without credentials.
+
+Before deployment, apply migration `v013_custom_mcp_oauth`. On Vercel, `Dockerfile.vercel` deliberately starts the application without migrations: run `prisma migrate deploy` once as a release step against Neon’s direct connection, supplied securely as `DATABASE_URL`, before deploying or promoting the OAuth version. The standard `Dockerfile` instead runs `docker-entrypoint.sh`, which applies migrations at startup. Keep `ENCRYPTION_KEY` unchanged. Reconnecting an OAuth connection intentionally clears all existing custom-tool grants, which must be reviewed again. An uncertain token refresh requires reconnect rather than replaying a potentially consumed refresh token.

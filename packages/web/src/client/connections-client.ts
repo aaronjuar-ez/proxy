@@ -77,9 +77,49 @@ function withCustomMcp(connection: Connection): Promise<Result<Connection, Fetch
 		return {...connection, customMcp: $(metadata)};
 	});
 }
-export function connectCustomMcp(input: {account: string; url: string; bearerToken?: string}) {
-	return apiRequest('POST', '/api/connections/custom-mcp', connectionSchema, input);
+export function connectCustomMcp(
+	input: {account: string; url: string; bearerToken?: string},
+	signal?: AbortSignal,
+) {
+	return apiRequest('POST', '/api/connections/custom-mcp', connectionSchema, input, signal);
 }
-export function refreshCustomMcp(connectionId: string) {
-	return apiRequest('POST', `/api/connections/${connectionId}/custom-mcp/refresh`, customMcpSchema);
+export function refreshCustomMcp(connectionId: string, signal?: AbortSignal) {
+	return apiRequest(
+		'POST',
+		`/api/connections/${connectionId}/custom-mcp/refresh`,
+		customMcpSchema,
+		undefined,
+		signal,
+	);
+}
+
+export type StartCustomMcpOAuthInput = (
+	{account: string; url: string; returnTo?: 'welcome'} | {connectionId: string}
+) & {clientId?: string};
+
+export type DiscoverCustomMcpOAuthInput = {url: string} | {connectionId: string};
+export function discoverCustomMcpOAuth(input: DiscoverCustomMcpOAuthInput, signal: AbortSignal) {
+	return apiRequest(
+		'POST',
+		'/api/connections/custom-mcp/oauth/discover',
+		z.object({
+			issuer: z.url({protocol: /^https$/}),
+			redirectUri: z.url({protocol: /^https?$/}),
+			registrationSupported: z.boolean(),
+			publicClientSupported: z.boolean(),
+		}),
+		input,
+		signal,
+	);
+}
+
+/** The authenticated POST prepares sign-in; tokens stay on the server. */
+export function startCustomMcpOAuth(input: StartCustomMcpOAuthInput, signal: AbortSignal) {
+	return apiRequest(
+		'POST',
+		'/api/connections/custom-mcp/oauth/start',
+		z.object({authorizationUrl: z.url({protocol: /^https$/})}),
+		input,
+		signal,
+	);
 }

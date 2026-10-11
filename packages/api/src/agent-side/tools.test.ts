@@ -3,7 +3,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
-mock.module('../utils/secret-crypto', () => ({decryptSecret: mock()}));
+mock.module('../utils/secret-crypto', () => ({decryptSecret: mock(), encryptSecret: mock()}));
 import {findIntegration, type Integration} from '@proxy/integrations';
 
 const getAgent = mock();

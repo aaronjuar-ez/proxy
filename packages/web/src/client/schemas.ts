@@ -11,7 +11,12 @@ export const customMcpToolSchema = z.object({
 	outputSchema: z.record(z.string(), z.json()).optional(),
 	annotations: z.record(z.string(), z.json()).optional(),
 });
-export const customMcpSchema = z.object({url: z.string(), tools: z.array(customMcpToolSchema)});
+export const customMcpSchema = z.object({
+	url: z.string(),
+	tools: z.array(customMcpToolSchema),
+	authType: z.enum(['none', 'bearer', 'oauth']),
+	oauth: z.object({issuer: z.string(), clientId: z.string()}).optional(),
+});
 
 export const connectionSchema = z.object({
 	id: z.string(),

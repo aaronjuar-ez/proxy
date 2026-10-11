@@ -55,3 +55,21 @@ test('refuses token header injection and unknown creation settings before remote
 	expect((await handleCreateCustomMcpRoute(request({account: 'Example', url: config.url, defaults: ['all']}))).isErr()).toBe(true);
 	expect(discoverTools).not.toHaveBeenCalled();
 });
+test('OAuth metadata exposes authentication type and issuer without access, refresh, or client secrets', async () => {
+	const oauth = {
+		settings: {
+			resource: config.url,
+			issuer: 'https://auth.example.com',
+			authorizationEndpoint: 'https://auth.example.com/authorize',
+			tokenEndpoint: 'https://auth.example.com/token',
+			tokenEndpointAuthMethod: 'client_secret_post',
+			clientId: 'client-1',
+			clientSecret: 'private-client-secret',
+		},
+		tokens: {accessToken: 'private-access', refreshToken: 'private-refresh'},
+	};
+	getConnectionWithCredential.mockResolvedValue(Ok({...row, credential: `encrypted:${JSON.stringify({...config, bearerToken: undefined, oauth})}`}));
+	const result = (await handleGetCustomMcpRoute(request())).unwrap();
+	expect(result).toMatchObject({authType: 'oauth', oauth: {issuer: 'https://auth.example.com', clientId: 'client-1'}});
+	expect(JSON.stringify(result)).not.toContain('private-');
+});

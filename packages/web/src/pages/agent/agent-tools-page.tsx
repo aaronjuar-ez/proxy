@@ -8,7 +8,7 @@ import {AgentHeading, AgentShell, Crumbs} from '@/components/agent-shell';
 import {Button} from '@proxy/ui/components/button';
 import {Label} from '@proxy/ui/components/label';
 import {useAgentMe} from '@/hooks/use-agent-target';
-import {describeFetchError} from '@/lib/loader-utils';
+import {agentErrorMessage} from '@/lib/agent-errors';
 
 export function AgentToolsPage() {
 	const {connectionId = ''} = useParams();
@@ -71,7 +71,7 @@ function ToolRunner({connectionId, tool}: {connectionId: string; tool: AgentTool
 					const result = await runAgentCustomTool(connectionId, tool.name, parsed.value);
 					setPending(false);
 					if (result.isErr()) {
-						setError(describeFetchError(result.error));
+						setError(agentErrorMessage(result.error));
 						return;
 					}
 					setOutput(JSON.stringify(result.value.upstream, null, 2));

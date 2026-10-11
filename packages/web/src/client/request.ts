@@ -9,11 +9,13 @@ export function apiRequest<S extends z.ZodType>(
 	path: string,
 	schema: S,
 	body?: unknown,
+	signal?: AbortSignal,
 ) {
 	return httpRequest(
 		path,
 		{
 			method,
+			...(signal ? {signal} : {}),
 			...(body === undefined
 				? {}
 				: {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}),

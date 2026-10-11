@@ -7,6 +7,7 @@ import {logAgentRequest} from '@proxy/db/audit';
 import type {AgentCaller} from '../../agent-side/tools';
 import {callUpstreamTool, discoverTools, type UpstreamTool, type UpstreamResult} from './client';
 import {readStoredMcp, toolActionId} from './store';
+import {prepareCustomMcp, upstreamConfig} from './oauth-session';
 
 export type UpstreamAgentTool = {
 	name: string;
@@ -84,7 +85,13 @@ export function runCustomAgentTool(
 		// A changed definition is never silently executed under an earlier grant. The owner must
 		// refresh the snapshot and explicitly grant its new fingerprint. Server annotations are hints,
 		// never an authority to route a custom tool through the trusted read-only endpoint.
-		const liveTools = $(await discoverTools(config));
+		let prepared = config.oauth ? $(await prepareCustomMcp(caller.agent.orgId, connection.id)) : {connection, config};
+		let discovery = await discoverTools(upstreamConfig(prepared.config));
+		if (discovery.isErr() && discovery.error.kind === 'credentials_rejected' && prepared.config.oauth) {
+			prepared = $(await prepareCustomMcp(caller.agent.orgId, connection.id, true));
+			discovery = await discoverTools(upstreamConfig(prepared.config));
+		}
+		const liveTools = $(discovery);
 		const live = liveTools.find((candidate) => candidate.name === name);
 		if (!live || toolActionId(live) !== toolActionId(tool)) return $(Err(ApiErr.conflict('This MCP tool changed. Ask the connection owner to refresh its tools and review access.')));
 		const beforeCall = async (): Promise<Result<void, ApiError>> =>
@@ -95,7 +102,7 @@ export function runCustomAgentTool(
 					!currentAgent ||
 					currentAgent.revokedAt ||
 					!currentConnection ||
-					currentConnection.credential !== connection.credential ||
+					currentConnection.credential !== prepared.connection.credential ||
 					!customActions(currentAgent, currentConnection).includes(toolActionId(tool))
 				) {
 					$(
@@ -115,7 +122,7 @@ export function runCustomAgentTool(
 				}
 				return $(Ok(undefined));
 			});
-		const upstream = $(await callUpstreamTool(config, name, args, beforeCall));
+		const upstream = $(await callUpstreamTool(upstreamConfig(prepared.config), name, args, beforeCall));
 		return {upstream};
 	});
 }

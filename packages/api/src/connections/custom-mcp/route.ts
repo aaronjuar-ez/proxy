@@ -7,6 +7,7 @@ import {requireUserOrgId} from '../../utils/user-org';
 import {encryptSecret} from '../../utils/secret-crypto';
 import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
 import {discoverTools} from './client';
+import {prepareCustomMcp, upstreamConfig} from './oauth-session';
 import {CUSTOM_MCP, loadCustomMcp, publicMcp, toolActionId, type StoredMcp} from './store';
 
 const createSchema = z
@@ -41,8 +42,14 @@ export function handleGetCustomMcpRoute(request: AuthenticatedRequest): Promise<
 export function handleRefreshCustomMcpRoute(request: AuthenticatedRequest): Promise<Result<ReturnType<typeof publicMcp>, ApiError>> {
 	return Do(async ($) => {
 		const orgId = $(await requireUserOrgId(request));
-		const {connection, config} = $(await loadCustomMcp(orgId, request.params.connectionId ?? ''));
-		const tools = $(await discoverTools(config));
+		let prepared = $(await prepareCustomMcp(orgId, request.params.connectionId ?? ''));
+		let discovery = await discoverTools(upstreamConfig(prepared.config));
+		if (discovery.isErr() && discovery.error.kind === 'credentials_rejected' && prepared.config.oauth) {
+			prepared = $(await prepareCustomMcp(orgId, prepared.connection.id, true));
+			discovery = await discoverTools(upstreamConfig(prepared.config));
+		}
+		const {connection, config} = prepared;
+		const tools = $(discovery);
 		const next = {...config, tools};
 		const credential = $(encryptSecret(JSON.stringify(next)));
 		const updated = $(await refreshCustomMcpSnapshot({connectionId: connection.id, credential, previous: connection.credential!, actionIds: tools.map(toolActionId)}));

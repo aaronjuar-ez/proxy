@@ -17,6 +17,7 @@ const connection: Connection = {
 	defaults: ['tool-v1'],
 	customMcp: {
 		url: 'https://example.com/mcp',
+		authType: 'none',
 		tools: [
 			{
 				name: 'search',
@@ -102,9 +103,13 @@ describe('custom MCP permissions', () => {
 	});
 });
 
-test('custom connection form masks credentials and explains the destination and grant policy', () => {
+test('custom connection form masks credentials and explains the destination and grant policy', async () => {
 	render(<ConnectCustomMcpForm onConnected={mock()} />);
-	expect(screen.getByLabelText('Bearer token (optional)').getAttribute('type')).toBe('password');
+	fireEvent.click(screen.getByRole('combobox', {name: 'Authentication'}));
+	const option = await screen.findByRole('option', {name: 'Bearer token'});
+	fireEvent.pointerDown(option);
+	fireEvent.click(option);
+	expect(screen.getByLabelText('Bearer token').getAttribute('type')).toBe('password');
 	expect(screen.getByLabelText('HTTPS MCP server URL').getAttribute('pattern')).toBe('https://.*');
 	expect(screen.getByText(/Connecting sends this token to the server URL above/)).toBeTruthy();
 	expect(
