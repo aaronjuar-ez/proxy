@@ -191,11 +191,19 @@ function CopyLine({label, value, copyLabel}: {label: string; value: string; copy
 	);
 }
 
-// Where each MCP client keeps its connectors, as the docs describe it; Claude Code takes a command
-// instead, run in a terminal with the server's address.
-const MCP_STEPS: Record<
-	string,
-	{where: string; url?: string; command?: (serverUrl: string) => string}
+// Where each MCP client keeps its connectors, as the docs describe it; command-based clients take
+// a command to run in a terminal with the server's address instead.
+const MCP_STEPS: Partial<
+	Record<
+		AgentProviderId,
+		{
+			where: string;
+			url?: string;
+			command?: (serverUrl: string) => string;
+			afterAdd?: string;
+			authorize?: string;
+		}
+	>
 > = {
 	claude: {
 		where: 'In Claude, open Settings, then Connectors, and choose Add custom connector.',
@@ -207,6 +215,14 @@ const MCP_STEPS: Record<
 	},
 	'claude-desktop': {
 		where: 'In Claude Desktop, open Settings, then Connectors, and choose Add custom connector.',
+	},
+	hermes: {
+		where: 'Run the command above in a terminal.',
+		command: (serverUrl) =>
+			`hermes mcp add personal-agent-proxy --url '${serverUrl}' --auth oauth --connect-timeout 300`,
+		afterAdd: 'Hermes Agent opens a browser when it can, or prints a sign-in link.',
+		authorize:
+			'In the browser, sign in and choose Hermes Agent when asked which agent it works as. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.',
 	},
 	chatgpt: {
 		where:
@@ -273,13 +289,18 @@ function McpAgent({
 					)}
 				</li>
 				<li>
-					{command
-						? `In ${provider.name}, run /mcp and choose personal-agent-proxy to sign in.`
-						: 'Paste the server address and add it.'}
+					{steps?.afterAdd ??
+						(command
+							? `In ${provider.name}, run /mcp and choose personal-agent-proxy to sign in.`
+							: 'Paste the server address and add it.')}
 				</li>
 				<li>
-					{provider.name} opens Personal Agent Proxy to sign in. Choose {provider.name} when asked
-					which agent it works as.
+					{steps?.authorize ?? (
+						<>
+							{provider.name} opens Personal Agent Proxy to sign in. Choose {provider.name} when
+							asked which agent it works as.
+						</>
+					)}
 				</li>
 			</ol>
 			{reachable && (

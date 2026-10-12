@@ -1,15 +1,15 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, ChatGPT or Poke as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, ChatGPT, Hermes Agent or Poke as an MCP server, and what an agent can do through it.
 ---
 
-Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT or Poke,
-connects to it, signs in with OAuth, and works as one of your agent logins: it can do what that
-login is allowed and nothing more, and every request it makes is in the activity log.
+Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT, Hermes
+Agent or Poke, connects to it, signs in with OAuth, and works as one of your agent logins: it can
+do what that login is allowed and nothing more, and every request it makes is in the activity log.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
-**MCP**, with a button to copy it.
+**MCP**, with a button to copy the address or setup command.
 
 <Steps>
 
@@ -20,6 +20,10 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
 - **Claude**: in **Settings**, **Connectors**, **Add custom connector**.
 - **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
   connector with the address.
+- **Hermes Agent**: copy and run the `hermes mcp add` command shown on its setup page. The command
+  enables OAuth and gives the browser sign-in five minutes to finish. When Hermes Agent runs on a
+  remote host, open the printed link locally, approve it, then paste the full redirect URL back into
+  the terminal when asked.
 - **Poke**: on [poke.com/integrations/new](https://poke.com/integrations/new), enter a name and the
   address, and leave the API key empty.
 
@@ -66,4 +70,5 @@ every app working as it, as well as its sign-in to the agent pages.
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
 ChatGPT and Poke to connect to it: they call it from their own servers, not from your computer.
+Hermes Agent can instead connect to one running on the same computer, including over localhost.
 </Callout>

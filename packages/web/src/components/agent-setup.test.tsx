@@ -1,0 +1,70 @@
+/// <reference types="bun" />
+
+import {afterEach, describe, expect, test} from 'bun:test';
+import {cleanup, render, screen} from '@testing-library/react';
+import {TooltipProvider} from '@proxy/ui/components/tooltip';
+import {createMemoryRouter, RouterProvider} from 'react-router';
+import {AgentSetup} from '@/components/agent-setup';
+import {findAgentProvider, type AgentProviderId} from '@proxy/integrations';
+
+afterEach(() => {
+	cleanup();
+});
+
+function renderAgentSetup(providerId: AgentProviderId) {
+	const provider = findAgentProvider(providerId);
+	if (!provider) {
+		throw new Error(`${providerId} provider is missing`);
+	}
+
+	const router = createMemoryRouter(
+		[
+			{
+				path: '/',
+				element: (
+					<AgentSetup
+						agents={[]}
+						providers={[provider]}
+						fixed={providerId}
+						continueLabel="Continue"
+						onContinue={() => undefined}
+					/>
+				),
+			},
+		],
+		{initialEntries: ['/']},
+	);
+
+	return render(
+		<TooltipProvider>
+			<RouterProvider router={router} />
+		</TooltipProvider>,
+	);
+}
+
+describe('AgentSetup', () => {
+	test('shows the complete Hermes Agent command and remote OAuth handoff', () => {
+		renderAgentSetup('hermes');
+
+		expect(
+			screen.getByText(
+				"hermes mcp add personal-agent-proxy --url 'http://localhost/mcp' --auth oauth --connect-timeout 300",
+			),
+		).toBeDefined();
+		expect(
+			screen.getByText(/copy the full redirect URL from the browser back into its prompt/),
+		).toBeDefined();
+	});
+
+	test('keeps the generic command-based setup steps for Claude Code', () => {
+		renderAgentSetup('claude-code');
+
+		expect(
+			screen.getByText('claude mcp add --transport http personal-agent-proxy http://localhost/mcp'),
+		).toBeDefined();
+		expect(
+			screen.getByText('In Claude Code, run /mcp and choose personal-agent-proxy to sign in.'),
+		).toBeDefined();
+		expect(screen.getByText(/Claude Code opens Personal Agent Proxy to sign in/)).toBeDefined();
+	});
+});

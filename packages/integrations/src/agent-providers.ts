@@ -7,6 +7,7 @@ export type AgentProviderId =
 	| 'claude'
 	| 'claude-code'
 	| 'claude-desktop'
+	| 'hermes'
 	| 'chatgpt';
 
 export type AgentProvider = {
@@ -100,6 +101,14 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		connects: 'mcp',
 		local: true,
 		faviconUrl: '/agent-providers/claude-desktop.png',
+	},
+	{
+		id: 'hermes',
+		name: 'Hermes Agent',
+		company: 'Nous Research',
+		connects: 'mcp',
+		local: true,
+		faviconUrl: '/agent-providers/hermes.png',
 	},
 	{
 		id: 'chatgpt',

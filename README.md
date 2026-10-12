@@ -62,7 +62,8 @@ their full private context or silently expanding what an agent may do.
       <strong>ChatGPT</strong>
     </td>
     <td align="center" width="25%">
-      <strong>And&nbsp;More</strong>
+      <img src="docs/assets/agents/hermes.png" width="48" height="48" alt="Hermes Agent logo"><br>
+      <strong>Hermes&nbsp;Agent</strong>
     </td>
   </tr>
 </table>
