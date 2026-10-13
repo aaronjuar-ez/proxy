@@ -9,6 +9,10 @@ export type ConnectionRow = {
 	integrationId: string;
 	account: string;
 	createdAt: Date;
+	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
+	tools: string | null;
+	// What the person called the connection, where they named it; null for every other integration.
+	name: string | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
 };
@@ -19,6 +23,8 @@ const connectionSelect = {
 	integrationId: true,
 	account: true,
 	createdAt: true,
+	tools: true,
+	name: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
@@ -57,7 +63,8 @@ export async function getConnectionWithCredential(
 
 /**
  * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
- * actions agents get from the start, none when left out.
+ * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON,
+ * and `name` what the person called it.
  */
 export async function createConnection(data: {
 	orgId: string;
@@ -65,6 +72,8 @@ export async function createConnection(data: {
 	account: string;
 	credential: string;
 	defaults?: string[];
+	tools?: string;
+	name?: string;
 }): Promise<Result<ConnectionRow, ApiError>> {
 	const {defaults = [], ...connection} = data;
 	return wrapDb(() =>
@@ -91,6 +100,37 @@ export async function updateConnectionCredential(data: {
 	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
 		({count}) => count > 0,
 	);
+}
+
+/**
+ * Replaces a custom MCP server's tools, as JSON, once the server lists them again, and drops the
+ * defaults and agents' settings for actions no longer among `actions`, the tools' names: a setting
+ * kept for a tool the server no longer lists would apply to whatever it later lists by that name.
+ */
+export async function updateConnectionTools(data: {
+	connectionId: string;
+	tools: string;
+	actions: string[];
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, tools, actions} = data;
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.connection.update({where: {id: connectionId}, data: {tools}}),
+			db.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+			db.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+		]);
+	});
+}
+
+/** Renames a connection; null is no name of its own, so it shows as its integration again. */
+export async function updateConnectionName(data: {
+	connectionId: string;
+	name: string | null;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, name} = data;
+	return wrapDb(async () => {
+		await db.connection.update({where: {id: connectionId}, data: {name}});
+	});
 }
 
 /** `Ok(false)` means no such connection in the organization. Its defaults go with it. */

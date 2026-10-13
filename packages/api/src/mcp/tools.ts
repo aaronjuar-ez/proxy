@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {findIntegration, INFO_INTEGRATION_ID, INTEGRATIONS, type Tool} from '@proxy/integrations';
+import {findIntegration, INFO_INTEGRATION_ID, integrationFor, INTEGRATIONS, type Tool} from '@proxy/integrations';
 
 import {listAgentConnections, listAgentTools, runAgentTool, type AgentConnection} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
@@ -64,19 +64,22 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 	},
 ];
 
-// "Read, Archive, Send": what the actions are called, in the catalog's order.
+// "Read, Archive, Send": what the actions are called, in the catalog's order; a custom server's
+// tools by their titles.
 function describeActions(connection: AgentConnection): string {
-	const integration = findIntegration(connection.integrationId);
+	const integration = integrationFor(connection);
 	return (integration?.actions ?? [])
 		.filter((action) => connection.actions.includes(action.id))
 		.map((action) => action.label)
 		.join(', ');
 }
 
+// A connection by its integration, and the name the person gave it where they did.
 function connectionSummary(connection: AgentConnection) {
 	return {
 		connection: connection.id,
 		integration: findIntegration(connection.integrationId)?.name ?? connection.integrationId,
+		...(connection.name === null ? {} : {name: connection.name}),
 		account: connection.account,
 		can: describeActions(connection),
 	};
@@ -86,9 +89,12 @@ function toolSummary(tool: Tool) {
 	return {name: tool.name, title: tool.title, description: tool.description, use: tool.readOnly ? 'read' : 'run', risk: tool.risk, params: tool.inputSchema};
 }
 
-// "Email, Granola, Notion and Linear": the services a person can connect, Information being built in.
+// "Email, Granola, Notion, Linear and any custom MCP server": the services a person can connect,
+// Information being built in.
 function connectableServices(): string {
-	const names = INTEGRATIONS.filter((integration) => integration.id !== INFO_INTEGRATION_ID).map((integration) => integration.name);
+	const names = INTEGRATIONS.filter((integration) => integration.id !== INFO_INTEGRATION_ID).map((integration) =>
+		integration.custom ? `any ${integration.name.charAt(0).toLowerCase()}${integration.name.slice(1)}` : integration.name,
+	);
 	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
@@ -99,7 +105,8 @@ export function serverInstructions(signedIn: SignedInAgent): Promise<Result<stri
 		const {connections} = $(await listAgentConnections(signedIn));
 		const lines = connections.map((connection) => {
 			const {integration, account, can} = connectionSummary(connection);
-			return `- ${integration} (${account}), connection ${connection.id}: ${can}`;
+			const called = connection.name === null ? `${integration} (${account})` : `${connection.name} (${integration}, ${account})`;
+			return `- ${called}, connection ${connection.id}: ${can}`;
 		});
 		return [
 			`You are signed in to Personal Agent Proxy as ${signedIn.name}. It holds the accounts and information a person gave you to work with, and lets you do only what they allowed.`,

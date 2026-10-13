@@ -1,3 +1,4 @@
+import {mcpToolSchema} from '@proxy/integrations';
 import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
@@ -8,6 +9,10 @@ export const connectionSchema = z.object({
 	account: z.string(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
+	// A custom MCP server's tools, what its actions are; null for every other integration.
+	tools: z.array(mcpToolSchema).nullable(),
+	// What the person called the connection, where they named it; null for every other integration.
+	name: z.string().nullable(),
 });
 
 export const agentSchema = z.object({

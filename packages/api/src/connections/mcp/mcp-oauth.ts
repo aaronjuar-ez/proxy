@@ -3,29 +3,59 @@ import {createHash, randomBytes} from 'node:crypto';
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, type FetchError, httpRequest} from '@proxy/utils';
+import {ApiErr, type ApiError, type FetchError} from '@proxy/utils';
+
+import {checkedRequest} from '../../utils/checked-request';
 
 /**
  * Signing in to an MCP server, as the MCP spec asks of every client: OAuth 2.0 with PKCE against
  * the server's own authorization server, a client registered on the spot (Dynamic Client
  * Registration) with no secret, and refresh tokens for staying connected. Each connection keeps
  * the client it was made with, since refreshing needs it. Nothing has to be set up beforehand, so
- * a self-hosted Personal Agent Proxy connects the same way.
+ * a self-hosted Personal Agent Proxy connects the same way. Every request goes through
+ * `checkedRequest`, since a custom server's endpoints are wherever its metadata said.
  */
 
-/** An MCP server and the authorization server its tokens come from. */
-export type McpServer = {
+/** An MCP server, as far as calling its tools goes. */
+export type McpEndpoint = {
 	// Its name in errors and logs: "Granola".
 	name: string;
 	// The server's MCP endpoint, also the resource its tokens are for.
 	url: string;
-	registerUrl: string;
-	authorizeUrl: string;
-	tokenUrl: string;
-	scope: string;
+	// Initializes a session before each call, as the spec asks, for a server that may keep one. The
+	// built-in servers answer without.
+	handshake?: true;
 	// What a tool failing means, from the text it failed with; else the server out of reach.
 	toolError?: (text: string) => ApiError | null;
 };
+
+/** An MCP server and the authorization server its tokens come from. */
+export type McpServer = McpEndpoint & {
+	registerUrl: string;
+	authorizeUrl: string;
+	tokenUrl: string;
+	// What is asked for at sign-in; nothing when the server names no scopes.
+	scope: string;
+};
+
+/** The endpoints of a server found from its address, as the handshake cookie keeps them. */
+export const mcpEndpointsSchema = z.object({
+	name: z.string(),
+	url: z.string(),
+	registerUrl: z.string(),
+	authorizeUrl: z.string(),
+	tokenUrl: z.string(),
+	scope: z.string(),
+	handshake: z.literal(true).optional(),
+});
+
+export type McpEndpoints = z.infer<typeof mcpEndpointsSchema>;
+
+/** A server's endpoints alone, for keeping: what `mcpEndpointsSchema` reads back. */
+export function mcpEndpoints(server: McpServer): McpEndpoints {
+	const {name, url, registerUrl, authorizeUrl, tokenUrl, scope, handshake} = server;
+	return {name, url, registerUrl, authorizeUrl, tokenUrl, scope, ...(handshake ? {handshake} : {})};
+}
 
 const TIMEOUT_MS = 15_000;
 
@@ -64,7 +94,7 @@ export function mcpAuthError(error: FetchError): ApiError {
 
 /** Registers Personal Agent Proxy with the server for one sign-in, returning back to `redirectUri`. */
 export async function registerMcpClient(server: McpServer, redirectUri: string): Promise<Result<string, ApiError>> {
-	const registration = await httpRequest(
+	const registration = await checkedRequest(
 		server.registerUrl,
 		{
 			method: 'POST',
@@ -75,7 +105,7 @@ export async function registerMcpClient(server: McpServer, redirectUri: string):
 				grant_types: ['authorization_code', 'refresh_token'],
 				response_types: ['code'],
 				token_endpoint_auth_method: 'none',
-				scope: server.scope,
+				...(server.scope ? {scope: server.scope} : {}),
 			}),
 		},
 		{schema: registrationSchema, timeoutMs: TIMEOUT_MS},
@@ -95,7 +125,9 @@ export function mcpAuthorizeUrl(server: McpServer, args: {clientId: string; redi
 	url.searchParams.set('response_type', 'code');
 	url.searchParams.set('client_id', args.clientId);
 	url.searchParams.set('redirect_uri', args.redirectUri);
-	url.searchParams.set('scope', server.scope);
+	if (server.scope) {
+		url.searchParams.set('scope', server.scope);
+	}
 	url.searchParams.set('state', args.state);
 	url.searchParams.set('code_challenge', args.challenge);
 	url.searchParams.set('code_challenge_method', 'S256');
@@ -104,7 +136,7 @@ export function mcpAuthorizeUrl(server: McpServer, args: {clientId: string; redi
 }
 
 async function requestTokens(server: McpServer, clientId: string, params: Record<string, string>, previousRefreshToken: string | null): Promise<Result<McpSignIn, ApiError>> {
-	const tokens = await httpRequest(
+	const tokens = await checkedRequest(
 		server.tokenUrl,
 		{
 			method: 'POST',
