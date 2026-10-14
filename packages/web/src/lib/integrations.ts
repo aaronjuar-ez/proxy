@@ -1,4 +1,4 @@
-import {IdCardIcon, MailIcon, PlugIcon, type LucideIcon} from 'lucide-react';
+import {IdCardIcon, MailIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	integrationFor,
@@ -8,8 +8,9 @@ import {
 } from '@proxy/integrations';
 
 // A brand's own logo where it has one (in `public/integrations/`), else an icon: Information is
-// ours, Email is any mailbox, and a custom MCP server any server. A logo that is already a square
-// tile, as Granola's and Linear's are, fills the tile edge to edge.
+// ours and Email is any mailbox. Custom MCP servers use our mark because Personal Agent Proxy is
+// the service connecting them. A logo that is already a square tile, as Granola's and Linear's
+// are, fills the tile edge to edge.
 type IntegrationLogoImage = {src: string; fill?: boolean};
 
 export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLogoImage};
@@ -22,7 +23,7 @@ const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	linear: {src: '/integrations/linear.svg', fill: true},
 	postgres: {src: '/integrations/postgresql.svg'},
 	mysql: {src: '/integrations/mysql.svg'},
-	mcp: PlugIcon,
+	mcp: {src: '/favicon.svg'},
 };
 
 export const INTEGRATIONS: Integration[] = CATALOG.map((integration) => ({
