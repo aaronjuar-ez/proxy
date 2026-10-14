@@ -132,10 +132,10 @@ function AgentDetail({id}: {id: string}) {
 						agent={agent}
 						connections={connections}
 						onChange={(connectionId, actions) =>
-							void apply(setAgentGrants(agent.id, connectionId, actions))
+							apply(setAgentGrants(agent.id, connectionId, actions))
 						}
 						onMakeDefault={(connectionId, actionId, allowed) =>
-							void apply(makeDefault(agent.id, connectionId, actionId, allowed))
+							apply(makeDefault(agent.id, connectionId, actionId, allowed))
 						}
 					/>
 				</Section>
@@ -240,8 +240,8 @@ function changedDetail(agent: AgentLogin): string | undefined {
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
-	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => void;
+	onChange: (connectionId: string, actions: Record<string, boolean | null>) => Promise<void>;
+	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => Promise<void>;
 };
 
 // Every connection, Information first, with a checkbox per action. Each starts folded to a line

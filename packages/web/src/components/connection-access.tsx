@@ -1,6 +1,6 @@
 import type {Action, OwnSettings} from '@proxy/integrations';
 import {CheckCheckIcon, Undo2Icon} from 'lucide-react';
-import {useId} from 'react';
+import {useId, useRef, useState} from 'react';
 import {RowList} from '@/components/row-list';
 import {IconButton} from '@/components/icon-button';
 import {Badge} from '@proxy/ui/components/badge';
@@ -16,9 +16,9 @@ type Props = {
 	// On a connection's page: how many agents have a setting of their own, by action.
 	differing?: Partial<Record<string, number>>;
 	// Actions turned on or off; null returns an agent's action to the default.
-	onChange: (actions: Record<string, boolean | null>) => void;
+	onChange: (actions: Record<string, boolean | null>) => Promise<void>;
 	// On an agent's page: makes the agent's own setting for an action the connection's default.
-	onMakeDefault?: (actionId: string, allowed: boolean) => void;
+	onMakeDefault?: (actionId: string, allowed: boolean) => Promise<void>;
 };
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
@@ -35,15 +35,47 @@ export function ConnectionAccess({
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
+	// Keep the control responsive while its change is saved and the route's data is reloaded.
+	const [pending, setPending] = useState<Partial<Record<string, boolean>>>({});
+	const queues = useRef<Partial<Record<string, Promise<void>>>>({});
+	const defaultsRef = useRef(defaults);
+	const ownRef = useRef(own);
+	defaultsRef.current = defaults;
+	ownRef.current = own;
 	const isDefault = (id: string) => defaults.includes(id);
-	const isOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
+	const storedIsOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
+	const isOn = (id: string) => pending[id] ?? storedIsOn(id);
 	const isOwn = (id: string) => own?.[id] !== undefined;
 	// On an agent's page, an action that matches the default follows it rather than being stored.
 	const setting = (id: string, next: boolean): boolean | null => {
-		if (own && next === isDefault(id)) {
+		if (ownRef.current && next === defaultsRef.current.includes(id)) {
 			return null;
 		}
 		return next;
+	};
+	const queueChange = (actionId: string, checked: boolean, save: () => Promise<void>) => {
+		setPending((current) => ({...current, [actionId]: checked}));
+
+		// Preserve click order across every control that can change the same action.
+		const previous = queues.current[actionId] ?? Promise.resolve();
+		const request = previous.catch(() => undefined).then(save);
+		queues.current[actionId] = request;
+		const settle = () => {
+			if (queues.current[actionId] !== request) {
+				return;
+			}
+
+			delete queues.current[actionId];
+			setPending((current) => {
+				const next = {...current};
+				delete next[actionId];
+				return next;
+			});
+		};
+		void request.then(settle, settle);
+	};
+	const change = (actionId: string, checked: boolean) => {
+		queueChange(actionId, checked, () => onChange({[actionId]: setting(actionId, checked)}));
 	};
 
 	return (
@@ -66,7 +98,7 @@ export function ConnectionAccess({
 							id={inputId}
 							className="mt-0.5"
 							checked={checked}
-							onCheckedChange={(next) => onChange({[action.id]: setting(action.id, next)})}
+							onCheckedChange={(next) => change(action.id, next)}
 						/>
 						<label htmlFor={inputId} className="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span className="flex items-center gap-2">
@@ -87,13 +119,22 @@ export function ConnectionAccess({
 							{isOwn(action.id) && onMakeDefault && (
 								<IconButton
 									label="Make this the default for every agent"
-									onClick={() => onMakeDefault(action.id, checked)}
+									onClick={() =>
+										queueChange(action.id, checked, () => onMakeDefault(action.id, checked))
+									}
 								>
 									<CheckCheckIcon />
 								</IconButton>
 							)}
 							{isOwn(action.id) && (
-								<IconButton label="Reset to default" onClick={() => onChange({[action.id]: null})}>
+								<IconButton
+									label="Reset to default"
+									onClick={() =>
+										queueChange(action.id, isDefault(action.id), () =>
+											onChange({[action.id]: null}),
+										)
+									}
+								>
 									<Undo2Icon />
 								</IconButton>
 							)}
