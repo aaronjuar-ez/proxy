@@ -1,7 +1,7 @@
 import {Button} from '@proxy/ui/components/button';
 import {LogoDock} from '@/components/logo-dock';
 import {RiseInWords, riseInDelay} from '@/components/rise-in-words';
-import {ThemeToggle} from '@/components/theme-toggle';
+import {SiteFooter} from '@/components/site-footer';
 
 // The app is its own origin: Vite's in development, app.personalagentproxy.com once built.
 const APP_URL =
@@ -58,30 +58,7 @@ export default function Home() {
 						</Button>
 					</div>
 				</div>
-				<footer
-					className="rise-in mt-auto flex justify-start gap-4 pt-24 pb-8 text-sm text-muted-foreground"
-					style={{animationDelay: riseInDelay(LINKS_WORD)}}
-				>
-					<div className="flex items-center gap-4">
-						<ThemeToggle />
-						<a
-							className="hover:text-foreground"
-							href="https://docs.personalagentproxy.com"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							Docs
-						</a>
-						<a
-							className="hover:text-foreground"
-							href="https://github.com/personalagentproxy/proxy"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							GitHub
-						</a>
-					</div>
-				</footer>
+				<SiteFooter className="rise-in" style={{animationDelay: riseInDelay(LINKS_WORD)}} />
 			</div>
 		</main>
 	);

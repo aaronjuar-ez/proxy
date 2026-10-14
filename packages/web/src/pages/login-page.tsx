@@ -35,8 +35,12 @@ type Status =
 	| {kind: 'sent'; logged: boolean}
 	| {kind: 'error'; message: string};
 
+// The terms and the privacy policy live on the website, whatever origin the app is on.
+const WEBSITE_URL = 'https://personalagentproxy.com';
+
 // The human side's sign-in: Google, or a magic link to the email address. Both come back with a
-// session cookie and land on `callbackUrl`, the page the user was sent here from.
+// session cookie and land on `callbackUrl`, the page the user was sent here from. Signing up past
+// the notice under the form accepts the terms, which the api records on the new account.
 export function LoginPage() {
 	const methods = useLoaderData<SignInMethods>();
 	const [searchParams] = useSearchParams();
@@ -120,6 +124,27 @@ export function LoginPage() {
 					{status.kind === 'error' && <p className="text-sm text-destructive">{status.message}</p>}
 				</form>
 				{import.meta.env.DEV && <DevLoginButton callbackUrl={callbackUrl} />}
+				<p className="text-sm text-balance text-muted-foreground">
+					By continuing, you agree to the{' '}
+					<a
+						href={`${WEBSITE_URL}/terms/`}
+						target="_blank"
+						rel="noreferrer"
+						className="text-foreground underline underline-offset-4"
+					>
+						Terms of Service
+					</a>{' '}
+					and{' '}
+					<a
+						href={`${WEBSITE_URL}/privacy/`}
+						target="_blank"
+						rel="noreferrer"
+						className="text-foreground underline underline-offset-4"
+					>
+						Privacy Policy
+					</a>
+					.
+				</p>
 			</div>
 		</div>
 	);
