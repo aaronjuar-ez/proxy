@@ -22,7 +22,15 @@ afterAll(() => {
 	fetchSpy.mockRestore();
 });
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, getConnectionWithCredential, updateConnectionTools, updateConnectionName}));
+mock.module('@proxy/db/connection', () => ({
+	listConnections,
+	createConnection,
+	updateConnectionCredential,
+	getConnectionWithCredential,
+	updateConnectionTools,
+	updateConnectionName,
+	getConnectionCredential: mock(async () => Ok(null)),
+}));
 
 const getUserOrgId = mock();
 

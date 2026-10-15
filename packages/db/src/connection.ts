@@ -17,7 +17,7 @@ export type ConnectionRow = {
 	defaults: Array<{actionId: string}>;
 };
 
-// Never the credential: only `getConnectionWithCredential` reads it.
+// Never the credential: only `getConnectionWithCredential` and `getConnectionCredential` read it.
 const connectionSelect = {
 	id: true,
 	integrationId: true,
@@ -59,6 +59,16 @@ export async function getConnectionWithCredential(
 			select: {...connectionSelect, credential: true},
 		}),
 	);
+}
+
+/** A connection's encrypted credential as it is now, `null` once the connection is gone. */
+export async function getConnectionCredential(
+	connectionId: string,
+): Promise<Result<string | null, ApiError>> {
+	const row = await wrapDb(() =>
+		db.connection.findUnique({where: {id: connectionId}, select: {credential: true}}),
+	);
+	return row.map((found) => found?.credential ?? null);
 }
 
 /**
