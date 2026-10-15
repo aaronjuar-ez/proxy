@@ -20,6 +20,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 					'connections/email/other',
 				],
 			},
+			'connections/google',
 			'connections/granola',
 			'connections/notion',
 			'connections/linear',

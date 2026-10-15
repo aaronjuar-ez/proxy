@@ -1,0 +1,162 @@
+---
+title: Google
+description: Connect a Google account for agents to read Drive, Docs, Sheets and Slides.
+---
+
+Agents work with the files the Google account can open, as the person who signs in. Every request
+goes to Google live; nothing is copied. One sign-in covers Gmail, Drive, Docs, Sheets and Slides,
+and one connection holds them all. Today agents can read files; Gmail and writing come later.
+
+## Before you start: a Google Cloud OAuth client
+
+Hosted Personal Agent Proxy has its own Google client, so skip to
+[Connect Google](#connect-google). A self-hosted Personal Agent Proxy needs one of its own, made in
+a Google Cloud project you own. Google's console changes its layout from time to time; the names
+below are the ones it shows today.
+
+<Steps>
+
+### Use the client from Google sign-in
+
+If you set up [Google sign-in](/self-hosting/sign-in#google), use the same client. Otherwise, in
+the [Google Cloud console](https://console.cloud.google.com/auth/clients), create an OAuth client
+ID of the type **Web application**.
+
+### Add the redirect URI
+
+Under **Authorized redirect URIs**, add your Personal Agent Proxy's address followed by
+`/api/connections/google/callback`, beside the one sign-in uses:
+
+```text
+https://proxy.example.com/api/connections/google/callback
+```
+
+Google takes redirect URIs on `https://` with a real domain, or on `http://localhost`. A LAN
+address, such as `http://192.168.1.20` or `http://nas.lan`, won't register.
+
+### Enable the APIs
+
+Enable the Gmail API, Google Drive API, Google Docs API, Google Sheets API and Google Slides API in
+the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,slides.googleapis.com)
+asks for the project and enables all five.
+
+### Add the scopes
+
+On the [Data Access](https://console.cloud.google.com/auth/scopes) page, **Add or remove scopes**
+and add these, the ones a sign-in asks for:
+
+```text
+openid
+https://www.googleapis.com/auth/userinfo.email
+https://www.googleapis.com/auth/gmail.modify
+https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/drive
+https://www.googleapis.com/auth/documents
+https://www.googleapis.com/auth/spreadsheets
+https://www.googleapis.com/auth/presentations
+```
+
+### Choose the audience
+
+On the [Audience](https://console.cloud.google.com/auth/audience) page, the user type and
+publishing status decide who can connect and for how long:
+
+- **A Google Workspace organization.** Choose the user type **Internal**. Everyone in the
+  organization can connect, with every scope, without verification, a user limit or a warning.
+- **A gmail.com account, or anyone outside one organization.** Choose the user type **External**,
+  then **Publish app** so the status reads **In production**. Don't submit it for verification.
+  Signing in shows "Google hasn't verified this app"; the person clicks **Advanced** and continues.
+  That is expected on a self-hosted Personal Agent Proxy for a handful of people: Google allows 100
+  such users per project, for the life of the project.
+
+<Callout type="warning">
+  Never leave the app in **Testing**. Google ends every sign-in, refresh token included, 7 days
+  after consent, whatever the scopes, and the connection stops working until the person signs in
+  again.
+</Callout>
+
+### Set the variables
+
+If they aren't set already for sign-in:
+
+```sh
+GOOGLE_CLIENT_ID="…apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="…"
+```
+
+See [Environment variables](/self-hosting/environment).
+
+</Steps>
+
+Cloud projects made since May 2026 have Google's
+[standard quotas](https://developers.google.com/workspace/tools-safety), far above what a few
+people use.
+
+## Connect Google
+
+<Steps>
+
+### Sign in with Google
+
+Open **Connections**, then **Add connection**, and **Sign in with Google**. Connecting another
+Google account makes another connection; signing in again with the same account gives its
+connection new tokens and keeps its settings.
+
+### Approve access
+
+Google's consent screen lists every permission Personal Agent Proxy asks for, and the person can
+untick some. An action whose permission was unticked is unavailable to every agent, marked "Not
+allowed at sign-in", until the person signs in again from the connection's page.
+
+### Review the defaults
+
+What agents are allowed starts with Read files. Turn it off for every agent on the connection's
+page, or only for one agent on the agent's page. A line above the permissions says what that means
+for the account: what is ticked is what agents can read and do with it, and nothing from Google is
+used to train a model.
+
+</Steps>
+
+## What agents can do
+
+- **Read files** browses and searches Drive and opens files. At the top are four places: My Drive,
+  Shared with me, Shared drives and Recent. My Drive, folders and shared drives list their files
+  folders first, Shared with me the last shared first, and Recent the files the account opened,
+  in shared drives too, the last opened first, 50 to a page; trashed files are never listed. A search looks for words in
+  file names and contents, anywhere in Drive, or among the files in the folder opened. A document
+  opens as Markdown and a presentation as text, as Google exports them, up to Google's limit of
+  10 MB. A spreadsheet opens into its tabs, and a tab into its rows, 50 to a page, each row's
+  values as `Header: value` lines, the headers from the tab's first row. Other files, shortcuts
+  included, open as their name, kind, owner, last change and link.
+
+Gmail, and creating and editing files, are coming. The sign-in already asks for them, so no new
+sign-in will be needed.
+
+## Troubleshooting
+
+- **`redirect_uri_mismatch`** on Google's page: the client doesn't have the exact redirect URI.
+  Add your Personal Agent Proxy's address, exactly as `APP_URL` has it, followed by
+  `/api/connections/google/callback`.
+- **"Access blocked: … has not completed the Google verification process"**, or a message that the
+  app is being tested: the app is in **Testing** and the account isn't a test user. Publish it, as
+  under [Choose the audience](#choose-the-audience).
+- **A connection stops working a week after connecting**, and agents are told "The provider turned
+  this connection's sign-in down": the app was in **Testing**. Publish it, then sign in with Google
+  again with the same account.
+- **Connecting fails, and the api's log shows `invalid_client`** in Google's answer: the client
+  secret doesn't belong to the client. Copy both again from the client's page into
+  `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- **A run answers that an API "has not been used in project … before or it is disabled"**: enable
+  that API from the link in the message, then try again a few minutes later.
+- **`org_internal`**: the client's user type is **Internal**, and the account isn't in the Google
+  Workspace organization that owns the project.
+- **"This email already has an account"** is about signing in to Personal Agent Proxy with Google,
+  not about connecting a Google account; see [Sign-in](/self-hosting/sign-in#google).
+
+## Disconnecting
+
+Deleting the connection revokes its tokens at Google. Google's grant is the account's for the
+whole client, so while another connection is for the same Google account, in any organization on
+the same Personal Agent Proxy, it is kept, and that connection goes on working. The person can also
+revoke Personal Agent Proxy's access from their Google account, at
+[Third-party apps & services](https://myaccount.google.com/permissions).
