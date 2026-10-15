@@ -26,7 +26,8 @@ import {requireUserOrgId} from '../utils/user-org';
  * callback checks the provider's answer against the cookie, trades the code for tokens and makes
  * the connection, or gives an existing one of the same account its new tokens, which is how
  * signing in again works, and ends on the connection's page, or back on the catalog with
- * `?error=<integration>`; a sign-in begun from the welcome flow (`returnTo: 'welcome'`) ends on its
+ * `?error=<integration>` (with `?error=<integration>-unconfigured` when the server lacks what the
+ * sign-in needs, such as Google's client); a sign-in begun from the welcome flow (`returnTo: 'welcome'`) ends on its
  * page for the connection, or its catalog, instead. What the provider's sign-in page is and how a
  * code becomes tokens and a connection is the integration's.
  */
@@ -96,6 +97,14 @@ export function saveConnection<C>(orgId: string, integrationId: IntegrationId, c
 	});
 }
 
+// Where the sign-in ends: the catalog, or the welcome flow's connections step it started from.
+function catalogUrl(appUrl: string, returnTo: ReturnTo | undefined): string {
+	if (returnTo === 'welcome') {
+		return `${appUrl}/welcome/connections`;
+	}
+	return `${appUrl}/connections/new`;
+}
+
 type SignInArgs<E, C> = {
 	integrationId: IntegrationId;
 	// The provider's name in errors and logs: "Notion".
@@ -134,14 +143,6 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 			const stored = $(requirePresent(cookie, ApiErr.validationError(`No ${name} sign-in under way`)));
 			return $(readStoredJson(stored, statePayloadSchema));
 		});
-	}
-
-	// Where the sign-in ends: the catalog, or the welcome flow's connections step it started from.
-	function catalogUrl(appUrl: string, returnTo: ReturnTo | undefined): string {
-		if (returnTo === 'welcome') {
-			return `${appUrl}/welcome/connections`;
-		}
-		return `${appUrl}/connections/new`;
 	}
 
 	function redirectToConnectError(res: Response, appUrl: string, returnTo: ReturnTo | undefined, error: ApiError): void {
@@ -217,7 +218,14 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 }
 
 /** The routes for a provider known in advance: the start, a top-level navigation, and the callback. */
-export function signInRoutes<E, C>(args: SignInArgs<E, C> & {start: SignInStart<E>}): {handleStart: Route; handleCallback: Route} {
+export function signInRoutes<E, C>(
+	args: SignInArgs<E, C> & {
+		// Whether the server has what the sign-in needs, such as Google's client: without it, the
+		// start goes back to the catalog saying so rather than trying.
+		configured?: () => boolean;
+		start: SignInStart<E>;
+	},
+): {handleStart: Route; handleCallback: Route} {
 	const flow = signInFlow(args);
 
 	/** `GET /api/connections/<integration>/start` — sends the browser to the provider's sign-in. */
@@ -229,6 +237,11 @@ export function signInRoutes<E, C>(args: SignInArgs<E, C> & {start: SignInStart<
 		}
 
 		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
+		if (args.configured && !args.configured()) {
+			res.redirect(`${catalogUrl(appUrl, returnTo)}?error=${args.integrationId}-unconfigured`);
+			return;
+		}
+
 		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, account: queryParam(request, 'account'), start: args.start});
 		if (begun.isErr()) {
 			flow.redirectToConnectError(res, appUrl, returnTo, begun.error);

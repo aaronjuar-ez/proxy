@@ -1,3 +1,4 @@
+import {getSignInMethods} from '@/client/auth-client';
 import {getAgent, listActivity, listAgents, listMcpClients} from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getMe} from '@/client/me-client';
@@ -18,9 +19,15 @@ export async function connectionsLoader() {
 	};
 }
 
-// The catalog, with how many accounts of each integration are connected.
+// The catalog, with how many accounts of each integration are connected, and whether the server
+// has what each needs (`/auth/methods`); an api that doesn't answer leaves every integration on
+// offer, and a sign-in that can't start says what is missing.
 export async function addConnectionLoader() {
-	return {connections: unwrapLoaderResult(await listConnections()).connections};
+	const [connections, methods] = await Promise.all([listConnections(), getSignInMethods()]);
+	return {
+		connections: unwrapLoaderResult(connections).connections,
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true}),
+	};
 }
 
 export async function connectionLoader({params}: {params: {id?: string}}) {
@@ -125,15 +132,22 @@ export async function connectAgentLoader({request}: {request: Request}) {
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 
 // The welcome flow, shown until the organization finishes or skips it: what the person has
-// connected so far, so each step can say what is done. Once finished, the app itself.
+// connected so far, so each step can say what is done, and what the server has set up for the
+// catalog. Once finished, the app itself.
 export async function welcomeLoader() {
-	const [me, agents, connections] = await Promise.all([getMe(), listAgents(), listConnections()]);
+	const [me, agents, connections, methods] = await Promise.all([
+		getMe(),
+		listAgents(),
+		listConnections(),
+		getSignInMethods(),
+	]);
 	if (unwrapLoaderResult(me).onboarded) {
 		throw redirect('/connections');
 	}
 	return {
 		agents: unwrapLoaderResult(agents).agents,
 		connections: unwrapLoaderResult(connections).connections,
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true}),
 	};
 }
 

@@ -57,7 +57,7 @@ async function humanLoader() {
 async function loginLoader({request}: {request: Request}): Promise<SignInMethods> {
 	const [me, methods] = await Promise.all([getMe(), getSignInMethods()]);
 	if (me.isErr()) {
-		return methods.unwrapOr({google: true});
+		return methods.unwrapOr({google: true, needs: {google: true}});
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));

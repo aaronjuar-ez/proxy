@@ -9,7 +9,7 @@ import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
 import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
-import {IntegrationCatalog} from '@/components/integration-catalog';
+import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
@@ -17,8 +17,8 @@ import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
 import {
 	describeDatabase,
 	EMAIL_FORM,
-	signInFailedMessage,
 	signInPath,
+	type Configured,
 	type Integration,
 } from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
@@ -34,7 +34,7 @@ type Step = 'agent' | 'connections' | 'email' | 'mcp' | DatabaseDialect;
 // services, each connection's permissions confirmed as it is made. Done, or skipped, it is not
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
-	const {agents, connections} = useLoaderData<typeof welcomeLoader>();
+	const {agents, connections, configured} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -65,6 +65,7 @@ export function WelcomePage({step}: {step: Step}) {
 				<ConnectionsStep
 					agentName={agentName}
 					connections={connections}
+					configured={configured}
 					finishing={finishing}
 					onDone={() => void finish()}
 				/>
@@ -148,17 +149,18 @@ function Frame({step, children}: {step: 1 | 2; children: ReactNode}) {
 function ConnectionsStep({
 	agentName,
 	connections,
+	configured,
 	finishing,
 	onDone,
 }: {
 	agentName: string;
 	connections: Connection[];
+	configured: Configured;
 	finishing: boolean;
 	onDone: () => void;
 }) {
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
-	const failed = signInFailedMessage(params.get('error'));
 	const connected = connections.filter((connection) => connection.integrationId !== 'info');
 
 	return (
@@ -167,9 +169,10 @@ function ConnectionsStep({
 				Add an account, then choose what {agentName} may do with it. The rest can be connected
 				later.
 			</StepHeading>
-			{failed && <p className="text-sm text-destructive">{failed}</p>}
+			<SignInFailed error={params.get('error')} configured={configured} />
 			<IntegrationCatalog
 				connections={connections}
+				configured={configured}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/welcome/connections/${integrationId}`)}
 			/>

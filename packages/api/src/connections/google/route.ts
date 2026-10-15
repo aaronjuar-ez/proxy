@@ -2,6 +2,7 @@ import {z} from 'zod';
 
 import {Do} from '@proxy/utils';
 
+import {googleOAuthClient} from '../../utils/google-oauth-client';
 import {signInRoutes} from '../connect-flow';
 import {requireGoogleClient} from './google-client';
 import {exchangeGoogleCode, googleAuthorizeUrl} from './google-oauth';
@@ -12,12 +13,13 @@ import {exchangeGoogleCode, googleAuthorizeUrl} from './google-oauth';
  * with and is found by Google's id for the account, so signing in again gives it the new tokens
  * and the address as it is now, even after the address changed. A new Google connection lets
  * agents read Drive by default. Without a Google client set up, the start goes back to the catalog
- * with the error.
+ * with `?error=google-unconfigured`, which the catalog turns into what the server is missing.
  */
 export const {handleStart: handleStartGoogleRoute, handleCallback: handleGoogleCallbackRoute} = signInRoutes({
 	integrationId: 'google',
 	name: 'Google',
 	keptSchema: z.null(),
+	configured: () => googleOAuthClient() !== null,
 	start: (request) =>
 		Do(async ($) => {
 			return {url: googleAuthorizeUrl($(requireGoogleClient()), request), kept: null};

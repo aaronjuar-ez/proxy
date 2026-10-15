@@ -26,11 +26,14 @@ export function requestMagicLink(email: string, callbackUrl?: string) {
 	);
 }
 
-const signInMethodsSchema = z.object({google: z.boolean()});
+const signInMethodsSchema = z.object({google: z.boolean(), needs: z.object({google: z.boolean()})});
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 
-/** The sign-in methods the api has set up besides the magic link, which always is. */
+/**
+ * The sign-in methods the api has set up besides the magic link, which always is, and which of
+ * what integrations need it has (`needs`), for the catalog.
+ */
 export function getSignInMethods() {
 	return httpRequest('/auth/methods', {method: 'GET'}, {schema: signInMethodsSchema});
 }

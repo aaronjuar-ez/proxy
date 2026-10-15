@@ -1,0 +1,91 @@
+/// <reference types="bun" />
+
+import {afterEach, describe, expect, mock, test} from 'bun:test';
+import {cleanup, render, screen, within} from '@testing-library/react';
+import {TooltipProvider} from '@proxy/ui/components/tooltip';
+import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
+import type {Connection} from '@/lib/types';
+
+const GOOGLE_DOCS = 'https://docs.personalagentproxy.com/connections/google/';
+
+const google: Connection = {
+	id: 'conn-1',
+	integrationId: 'google',
+	account: 'alex@example.com',
+	defaults: ['readFiles'],
+	tools: null,
+	name: null,
+	unavailable: [],
+};
+
+afterEach(() => {
+	cleanup();
+});
+
+function renderCatalog(args: {google: boolean; connections?: Connection[]}) {
+	render(
+		<TooltipProvider>
+			<IntegrationCatalog
+				connections={args.connections ?? []}
+				configured={{google: args.google}}
+				onConnectForm={mock()}
+			/>
+		</TooltipProvider>,
+	);
+	const row = screen.getByText('Google').closest('li');
+	if (!row) {
+		throw new Error('The catalog has no Google row');
+	}
+	return within(row);
+}
+
+describe('IntegrationCatalog', () => {
+	test('Google without its client on the server is greyed out, saying what to set and where the docs are', () => {
+		const row = renderCatalog({google: false, connections: [google]});
+
+		// The row is neither a link nor a button: its only link is to the docs.
+		expect(row.queryByRole('button')).toBeNull();
+		expect(row.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+			GOOGLE_DOCS,
+		]);
+		expect(row.getByText(/Needs/).textContent).toBe(
+			'Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server. See the docs.',
+		);
+		const docs = row.getByRole('link', {name: 'the docs'});
+		expect(docs.getAttribute('href')).toBe(GOOGLE_DOCS);
+		expect(docs.getAttribute('target')).toBe('_blank');
+		expect(row.getByText('1 connected')).toBeDefined();
+	});
+
+	test('Google with its client on the server is signed in to with the whole row', () => {
+		const row = renderCatalog({google: true});
+
+		expect(row.getByRole('link').getAttribute('href')).toBe('/api/connections/google/start');
+		expect(row.queryByText(/GOOGLE_CLIENT_ID/)).toBeNull();
+	});
+});
+
+describe('SignInFailed', () => {
+	test('a sign-in that could not start says what the server is missing', () => {
+		render(<SignInFailed error="google-unconfigured" configured={{google: false}} />);
+
+		expect(screen.getByText(/Needs/).textContent).toBe(
+			'Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server. See the docs.',
+		);
+		expect(screen.getByRole('link', {name: 'the docs'}).getAttribute('href')).toBe(GOOGLE_DOCS);
+	});
+
+	test('says nothing of what the server was missing once it has it', () => {
+		const {container} = render(
+			<SignInFailed error="google-unconfigured" configured={{google: true}} />,
+		);
+
+		expect(container.textContent).toBe('');
+	});
+
+	test('a sign-in that failed says to try again', () => {
+		render(<SignInFailed error="google" configured={{google: true}} />);
+
+		expect(screen.getByText('Signing in to Google didn’t finish. Try again.')).toBeDefined();
+	});
+});

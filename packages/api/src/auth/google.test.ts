@@ -152,12 +152,21 @@ describe('handleSignInMethodsRoute', () => {
 
 		const configured = makeRes();
 		handleSignInMethodsRoute({} as never, configured as never);
-		expect(configured.json).toHaveBeenCalledWith({google: true});
+		expect(configured.json).toHaveBeenCalledWith({google: true, needs: {google: true}});
 
 		mockEnv.GOOGLE_CLIENT_ID = undefined;
 		const unconfigured = makeRes();
 		handleSignInMethodsRoute({} as never, unconfigured as never);
-		expect(unconfigured.json).toHaveBeenCalledWith({google: false});
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false, needs: {google: false}});
+	});
+
+	test('says a Google connection can start with the client alone, as its start route does', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+		mockEnv.APP_URL = undefined;
+
+		const res = makeRes();
+		handleSignInMethodsRoute({} as never, res as never);
+		expect(res.json).toHaveBeenCalledWith({google: false, needs: {google: true}});
 	});
 });
 

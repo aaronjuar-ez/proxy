@@ -157,11 +157,13 @@ describe('handleStartGoogleRoute', () => {
 		expect(none?.searchParams.has('login_hint')).toBe(false);
 	});
 
-	test('without a Google client set up, goes back to the catalog with the error', async () => {
+	test('without a Google client set up, goes back to the catalog saying so', async () => {
 		env.GOOGLE_CLIENT_ID = undefined;
 		const {res, cookie} = await start();
+		const {res: welcome} = await start({returnTo: 'welcome'});
 
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=google');
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/new?error=google-unconfigured');
+		expect(welcome.redirect).toHaveBeenCalledWith('https://app.example.com/welcome/connections?error=google-unconfigured');
 		expect(cookie).toBeUndefined();
 	});
 });

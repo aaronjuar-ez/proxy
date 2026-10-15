@@ -62,9 +62,14 @@ function getOAuthConfig(): OAuthConfig | null {
 	};
 }
 
-/** `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only those set up. */
+/**
+ * `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only
+ * those set up, and what the server has of what integrations need (`needs`), so the catalog offers
+ * only the ones whose sign-in can start: a Google connection needs the client, as its start route
+ * checks.
+ */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
-	res.json({google: getOAuthConfig() !== null});
+	res.json({google: getOAuthConfig() !== null, needs: {google: googleOAuthClient() !== null}});
 }
 
 const statePayloadSchema = z.object({
