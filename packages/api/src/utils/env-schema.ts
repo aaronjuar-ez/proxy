@@ -58,7 +58,7 @@ export const envSchema = z.object({
 			group: 'Core',
 			required: true,
 			description:
-				'Encrypts the app passwords and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
+				'Encrypts the app passwords, OAuth tokens and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
 		},
 	),
 
@@ -69,7 +69,8 @@ export const envSchema = z.object({
 	}),
 	GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',
-		description: 'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`. Register `<APP_URL>/auth/google/callback` as the redirect URI.',
+		description:
+			'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Drive, Docs, Sheets and Slides). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Drive, Docs, Sheets and Slides APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
 	}),
 	GOOGLE_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 		group: 'Sign-in',

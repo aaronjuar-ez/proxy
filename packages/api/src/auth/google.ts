@@ -10,6 +10,7 @@ import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
+import {googleOAuthClient} from '../utils/google-oauth-client';
 import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
 
 /**
@@ -45,7 +46,8 @@ type OAuthConfig = {
 };
 
 function getOAuthConfig(): OAuthConfig | null {
-	if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+	const client = googleOAuthClient();
+	if (!client) {
 		return null;
 	}
 
@@ -54,8 +56,7 @@ function getOAuthConfig(): OAuthConfig | null {
 	}
 
 	return {
-		clientId: env.GOOGLE_CLIENT_ID,
-		clientSecret: env.GOOGLE_CLIENT_SECRET,
+		...client,
 		appUrl: env.APP_URL,
 		redirectUri: `${env.APP_URL}/auth/google/callback`,
 	};

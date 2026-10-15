@@ -195,3 +195,20 @@ describe('postgres and mysql', () => {
 		});
 	});
 });
+
+describe('google', () => {
+	const google = integration('google');
+
+	test('files are a tree that is listed and opened, never written to yet', () => {
+		expect(integrationTools(google).map((tool) => tool.name)).toEqual(['files_list', 'files_get']);
+	});
+
+	test('a list takes the folder to list inside and a search', () => {
+		const list = findTool(google, 'files_list');
+
+		expect(Object.keys(list?.inputSchema.properties ?? {})).toEqual(['parent', 'search', 'page']);
+		expect(list?.description).toContain('hasChildren');
+		expect(list?.action).toBe('readFiles');
+		expect(list?.readOnly).toBe(true);
+	});
+});

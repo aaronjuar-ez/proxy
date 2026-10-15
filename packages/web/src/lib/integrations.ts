@@ -18,6 +18,7 @@ export type Integration = CatalogIntegration & {logo: LucideIcon | IntegrationLo
 const LOGOS: Record<IntegrationId, LucideIcon | IntegrationLogoImage> = {
 	info: IdCardIcon,
 	email: MailIcon,
+	google: {src: '/integrations/google.svg'},
 	granola: {src: '/integrations/granola.png', fill: true},
 	notion: {src: '/integrations/notion.svg'},
 	linear: {src: '/integrations/linear.svg', fill: true},

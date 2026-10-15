@@ -2,6 +2,7 @@ import {findIntegration, type IntegrationId} from '@proxy/integrations';
 
 import type {Connector} from './connector';
 import {emailConnector} from './email-connector';
+import {googleConnector} from './google-connector';
 import {granolaConnector} from './granola-connector';
 import {infoConnector} from './info-connector';
 import {linearConnector} from './linear-connector';
@@ -17,6 +18,7 @@ const CONNECTORS: Record<Exclude<IntegrationId, 'mcp'>, Connector> = {
 	linear: linearConnector,
 	postgres: sqlConnector('postgres'),
 	mysql: sqlConnector('mysql'),
+	google: googleConnector,
 };
 
 export function connectorFor(integrationId: string): Connector | undefined {

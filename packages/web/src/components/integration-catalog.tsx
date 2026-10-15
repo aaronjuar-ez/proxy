@@ -13,7 +13,7 @@ import type {Connection} from '@/lib/types';
 // `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog.
 // The rest are connected on a form of their own: a mailbox with an app password, a database with
 // a user's name and password, a custom MCP server by its address.
-const SIGN_IN: IntegrationId[] = ['granola', 'notion', 'linear'];
+const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
 
 // The whole row is the link or button; its plus is styled as a ghost icon button that lights up
 // with the row.

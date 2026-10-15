@@ -509,6 +509,69 @@ const postgres = sqlIntegration(
 
 const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or MariaDB database');
 
+// A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
+// Gmail, Drive, Docs, Sheets and Slides. One connection holds every product, so action ids carry
+// the product, as Information's `readCards` and `writeCards` do. Drive is one tree: My Drive,
+// Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet holding
+// its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as "Header:
+// value" lines. Nothing is copied: every request goes to Google.
+const google: Integration = {
+	id: 'google',
+	name: 'Google',
+	description: 'Gmail, Drive, Docs, Sheets and Slides for one Google account',
+	actions: [
+		{
+			id: 'readFiles',
+			label: 'Read files',
+			description:
+				'Browse and search Drive, and open files, documents, spreadsheets and presentations',
+			risk: 'low',
+		},
+	],
+	collections: [
+		{
+			id: 'files',
+			name: 'Files',
+			singular: 'file',
+			titleField: 'name',
+			summaryField: 'kind',
+			searchHint:
+				'Words in file names and contents, anywhere in Drive, or inside the folder opened.',
+			nested: true,
+			read: 'readFiles',
+			writes: {},
+			fields: [
+				{key: 'name', label: 'Name', type: 'text'},
+				{
+					key: 'kind',
+					label: 'Kind',
+					type: 'select',
+					// A place is one of the four at the top: My Drive, Shared with me, Shared drives, Recent.
+					options: [
+						'Place',
+						'Folder',
+						'Document',
+						'Spreadsheet',
+						'Presentation',
+						'Sheet',
+						'Row',
+						'File',
+					],
+					system: true,
+				},
+				{key: 'modified', label: 'Modified', type: 'datetime', system: true},
+				// Whoever owns the file in Drive; files in a shared drive have none.
+				{key: 'owner', label: 'Owner', type: 'text', system: true},
+				// The file in Drive.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
+				// size, a row's values one "Header: value" a line, the headers from the tab's first row.
+				{key: 'content', label: 'Content', type: 'longtext'},
+			],
+		},
+	],
+};
+
 // Information's actions for one of its collections, such as `readCards` and `writeCards`: reading
 // it, and adding, editing and deleting as one.
 function infoActions(collectionId: string, plural: string): Action[] {
@@ -612,6 +675,7 @@ const mcp: Integration = {
 export const INTEGRATIONS: Integration[] = [
 	info,
 	email,
+	google,
 	granola,
 	notion,
 	linear,

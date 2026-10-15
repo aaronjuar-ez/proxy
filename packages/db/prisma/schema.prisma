@@ -133,6 +133,9 @@ model Connection {
   // The account as the provider names it, such as an email address; the organization's name for
   // Information.
   account       String
+  // The provider's own id for the account, which stays as its address changes: Google's `sub`.
+  // None where the provider gives none, or for a connection from before it was kept.
+  providerAccountId String?
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
   credential    String?
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
@@ -151,6 +154,7 @@ model Connection {
   agentGrants AgentGrant[]
 
   @@index([orgId])
+  @@index([integrationId, providerAccountId])
 }
 
 // An action of the connection that agents get by default, such as `read` or `archive` on a

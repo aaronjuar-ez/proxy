@@ -80,7 +80,7 @@ export type Collection = {
 };
 
 export type IntegrationId =
-	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql' | 'mcp';
+	'info' | 'email' | 'granola' | 'notion' | 'linear' | 'postgres' | 'mysql' | 'mcp' | 'google';
 
 export type Integration = {
 	id: IntegrationId;

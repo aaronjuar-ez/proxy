@@ -80,6 +80,7 @@ export async function createConnection(data: {
 	orgId: string;
 	integrationId: string;
 	account: string;
+	providerAccountId?: string | null;
 	credential: string;
 	defaults?: string[];
 	tools?: string;
@@ -92,6 +93,53 @@ export async function createConnection(data: {
 			select: connectionSelect,
 		}),
 	);
+}
+
+/**
+ * The organization's connection of an integration for an account, signed in to again: by the
+ * provider's own id for the account where it gives one, else by its address, which is also how a
+ * connection made before ids were kept is found.
+ */
+export async function findAccountConnection(data: {
+	orgId: string;
+	integrationId: string;
+	account: string;
+	providerAccountId: string | null;
+}): Promise<Result<ConnectionRow | null, ApiError>> {
+	const {orgId, integrationId, account, providerAccountId} = data;
+	return wrapDb(async () => {
+		const byId =
+			providerAccountId === null
+				? null
+				: await db.connection.findFirst({
+						where: {orgId, integrationId, providerAccountId},
+						select: connectionSelect,
+					});
+		return (
+			byId ??
+			db.connection.findFirst({
+				where: {orgId, integrationId, account, providerAccountId: null},
+				select: connectionSelect,
+			})
+		);
+	});
+}
+
+/**
+ * Gives a connection signed in to again its new credential, and the account as the provider names
+ * it now, such as an address changed since.
+ */
+export async function renewConnection(data: {
+	connectionId: string;
+	account: string;
+	providerAccountId: string | null;
+	credential: string;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, ...renewed} = data;
+	const updated = await wrapDb(() =>
+		db.connection.update({where: {id: connectionId}, data: renewed, select: {id: true}}),
+	);
+	return updated.map(() => undefined);
 }
 
 /**

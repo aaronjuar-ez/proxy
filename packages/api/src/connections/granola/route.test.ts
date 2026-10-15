@@ -5,11 +5,19 @@ import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 
-const listConnections = mock();
+const findAccountConnection = mock();
 const createConnection = mock();
-const updateConnectionCredential = mock();
+const renewConnection = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, updateConnectionTools: mock(), updateConnectionName: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+mock.module('@proxy/db/connection', () => ({
+	findAccountConnection,
+	createConnection,
+	renewConnection,
+	updateConnectionCredential: mock(),
+	getConnectionCredential: mock(async () => Ok(null)),
+	updateConnectionTools: mock(),
+	updateConnectionName: mock(),
+}));
 
 const getUserOrgId = mock();
 
@@ -86,9 +94,9 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	granola.requests = [];
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
-	listConnections.mockResolvedValue(Ok([]));
+	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
-	updateConnectionCredential.mockResolvedValue(Ok(true));
+	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleStartGranolaRoute', () => {
@@ -127,13 +135,14 @@ describe('handleGranolaCallbackRoute', () => {
 	});
 
 	test('signing in to an account already connected gives that connection the new tokens', async () => {
-		listConnections.mockResolvedValue(Ok([{id: 'conn-old', integrationId: 'granola', account: 'alex@example.com'}]));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-old'}));
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(updateConnectionCredential.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-old'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old?added');
+		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', providerAccountId: null});
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-old'});
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-old');
 	});
 
 	test('a state that does not match, or another user, connects nothing', async () => {

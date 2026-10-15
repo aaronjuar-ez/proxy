@@ -9,9 +9,10 @@ import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendResult} from '../../server/response';
 import {requireUserOrgId} from '../../utils/user-org';
 import {toConnectionResponse, type ConnectionResponse} from '../connection-response';
+import {returnToSchema, saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
 import {listMcpTools} from '../mcp/mcp-client';
-import {mcpSignInRoutes, returnToSchema, saveMcpConnection} from '../mcp/mcp-connect';
-import {mcpEndpoints} from '../mcp/mcp-oauth';
+import {startMcpSignIn} from '../mcp/mcp-connect';
+import {exchangeMcpCode, mcpEndpoints, mcpEndpointsSchema} from '../mcp/mcp-oauth';
 import {listCustomTools, mcpAccount, readOnlyToolNames, type CustomCredential} from './custom-mcp';
 import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discovery';
 
@@ -44,19 +45,22 @@ const connectBodySchema = z.object({
 /** Connected, with the new connection, or the server asks for a sign-in, begun, at the page the browser goes to. */
 export type ConnectCustomMcpResponse = {kind: 'connected'; connection: ConnectionResponse} | {kind: 'signIn'; url: string};
 
-const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = mcpSignInRoutes({
+const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 	integrationId: 'mcp',
 	name: 'MCP server',
-	server: null,
+	// The server found from the address and the name the person gave the connection, beside the
+	// client registered for the sign-in.
+	keptSchema: z.object({clientId: z.string(), server: mcpEndpointsSchema, name: z.string()}),
 	// Signed in, the server is asked for its tools with the new token, and the connection keeps its
 	// endpoints beside the tokens, for refreshing them.
-	connection: async (signIn, server) =>
-		(await listMcpTools(server, signIn.credential.accessToken)).map((tools) => ({
-			account: mcpAccount(new URL(server.url)),
-			credential: {auth: 'oauth', url: server.url, server: mcpEndpoints(server), ...signIn.credential} satisfies CustomCredential,
-			defaults: readOnlyToolNames(tools),
-			tools,
-		})),
+	finish: ({redirectUri, code, verifier, kept}) =>
+		Do(async ($) => {
+			const {server, name} = kept;
+			const signIn = $(await exchangeMcpCode(server, {clientId: kept.clientId, redirectUri, code, verifier}));
+			const tools = $(await listMcpTools(server, signIn.credential.accessToken));
+			const credential: CustomCredential = {auth: 'oauth', url: server.url, server, ...signIn.credential};
+			return {account: mcpAccount(new URL(server.url)), credential, defaults: readOnlyToolNames(tools), tools, name};
+		}),
 });
 
 export {handleCustomMcpCallbackRoute};
@@ -69,11 +73,12 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		const probe = $(await probeMcpServer(url, token));
 		if (probe.kind === 'signIn') {
 			const server = $(await discoverMcpServer(url));
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, server, returnTo: body.returnTo, name: body.name}))};
+			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), name: body.name});
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, returnTo: body.returnTo, start}))};
 		}
 		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
 		const orgId = $(await requireUserOrgId(request));
-		const row = $(await saveMcpConnection(orgId, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}));
+		const {row} = $(await saveConnection(orgId, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}));
 		return {kind: 'connected' as const, connection: toConnectionResponse(row)};
 	});
 }

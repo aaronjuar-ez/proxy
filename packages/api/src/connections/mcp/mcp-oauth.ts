@@ -1,5 +1,3 @@
-import {createHash, randomBytes} from 'node:crypto';
-
 import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -111,12 +109,6 @@ export async function registerMcpClient(server: McpServer, redirectUri: string):
 		{schema: registrationSchema, timeoutMs: TIMEOUT_MS},
 	);
 	return registration.map(({client_id}) => client_id).mapErr((error) => ApiErr.providerUnreachable(error));
-}
-
-/** A PKCE verifier and the challenge the server is sent in its place. */
-export function makePkce(): {verifier: string; challenge: string} {
-	const verifier = randomBytes(32).toString('base64url');
-	return {verifier, challenge: createHash('sha256').update(verifier).digest('base64url')};
 }
 
 /** The server's sign-in page, coming back to `redirectUri` with `state`. */

@@ -3,11 +3,19 @@ import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 
-const listConnections = mock();
+const findAccountConnection = mock();
 const createConnection = mock();
-const updateConnectionCredential = mock();
+const renewConnection = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential, updateConnectionTools: mock(), updateConnectionName: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+mock.module('@proxy/db/connection', () => ({
+	findAccountConnection,
+	createConnection,
+	renewConnection,
+	updateConnectionCredential: mock(),
+	getConnectionCredential: mock(async () => Ok(null)),
+	updateConnectionTools: mock(),
+	updateConnectionName: mock(),
+}));
 
 const getUserOrgId = mock();
 
@@ -84,9 +92,9 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	notion.requests = [];
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
-	listConnections.mockResolvedValue(Ok([]));
+	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
-	updateConnectionCredential.mockResolvedValue(Ok(true));
+	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleStartNotionRoute', () => {

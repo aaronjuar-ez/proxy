@@ -204,6 +204,32 @@ const tracker = await connect({
 	defaults: ['read', 'create'],
 });
 
+// Made-up tokens, like Linear's: opening a file fails.
+const drive = await connect({
+	integrationId: 'google',
+	account: 'demo.user@gmail.com',
+	credential: encrypt(
+		JSON.stringify({
+			accessToken: 'demo-access-token',
+			refreshToken: null,
+			expiresAt: null,
+			scopes: [
+				'openid',
+				'https://www.googleapis.com/auth/userinfo.email',
+				'https://www.googleapis.com/auth/gmail.modify',
+				'https://www.googleapis.com/auth/gmail.send',
+				'https://www.googleapis.com/auth/drive',
+				'https://www.googleapis.com/auth/documents',
+				'https://www.googleapis.com/auth/spreadsheets',
+				'https://www.googleapis.com/auth/presentations',
+			],
+			email: 'demo.user@gmail.com',
+		}),
+	),
+	daysAgo: 1,
+	defaults: ['readFiles'],
+});
+
 const connections: [Connection, ...Connection[]] = [
 	info,
 	personal,
@@ -213,6 +239,7 @@ const connections: [Connection, ...Connection[]] = [
 	meetings,
 	wiki,
 	tracker,
+	drive,
 ];
 
 // ---- Information records --------------------------------------------------------------------
@@ -426,6 +453,15 @@ const ISSUE_TITLES: [string, ...string[]] = [
 	'Slow search on large workspaces',
 ];
 
+// Titles for Google Drive's files.
+const FILE_TITLES: [string, ...string[]] = [
+	'Budget 2027',
+	'Launch plan',
+	'Board deck — October',
+	'Contracts',
+	'Trip itinerary',
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -451,6 +487,10 @@ function recordTitle(connection: Connection, collectionId: string): string {
 
 	if (connection.integrationId === 'linear') {
 		return pick(ISSUE_TITLES);
+	}
+
+	if (connection.integrationId === 'google') {
+		return pick(FILE_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);
