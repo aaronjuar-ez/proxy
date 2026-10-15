@@ -7,7 +7,7 @@ import {RecordFields, RecordForm} from '@/components/record-form';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, newCommands} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
-import {inside} from '@/lib/agent-paths';
+import {inside, recordPath} from '@/lib/agent-paths';
 import type {DataRecord} from '@/lib/types';
 import {AgentDenied} from '@/pages/agent/agent-collection-page';
 
@@ -53,7 +53,7 @@ export function AgentNewRecordPage() {
 			setError(agentErrorMessage(result.error));
 			return;
 		}
-		navigate(result.value.record ? `${recordsPath}/${result.value.record.id}` : listPath, {
+		navigate(result.value.record ? recordPath(recordsPath, result.value.record.id) : listPath, {
 			replace: true,
 		});
 	};

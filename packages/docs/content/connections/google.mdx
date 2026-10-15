@@ -1,11 +1,11 @@
 ---
 title: Google
-description: Connect a Google account for agents to work with Gmail and Drive, Docs, Sheets and Slides.
+description: Connect a Google account for agents to work with Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts.
 ---
 
-Agents work with the account's email and the files it can open, as the person who signs in. Every
-request goes to Google live; nothing is copied. One sign-in covers Gmail, Drive, Docs, Sheets and
-Slides, and one connection holds them all. Gmail needs no app password, so it works for accounts
+Agents work with the account's email, calendars, files and contacts, as the person who signs in.
+Every request goes to Google live; nothing is copied. One sign-in covers Gmail, Calendar, Drive,
+Docs, Sheets, Slides and Contacts, and one connection holds them all. Gmail needs no app password, so it works for accounts
 that can't make one.
 
 ## Before you start: a Google Cloud OAuth client
@@ -37,9 +37,9 @@ address, such as `http://192.168.1.20` or `http://nas.lan`, won't register.
 
 ### Enable the APIs
 
-Enable the Gmail API, Google Drive API, Google Docs API, Google Sheets API and Google Slides API in
-the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,slides.googleapis.com)
-asks for the project and enables all five.
+Enable the Gmail API, Google Calendar API, Google Drive API, Google Docs API, Google Sheets API,
+Google Slides API and People API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,docs.googleapis.com,sheets.googleapis.com,slides.googleapis.com,people.googleapis.com)
+asks for the project and enables all seven.
 
 ### Add the scopes
 
@@ -51,10 +51,13 @@ openid
 https://www.googleapis.com/auth/userinfo.email
 https://www.googleapis.com/auth/gmail.modify
 https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/calendar.events
+https://www.googleapis.com/auth/calendar.calendarlist.readonly
 https://www.googleapis.com/auth/drive
 https://www.googleapis.com/auth/documents
 https://www.googleapis.com/auth/spreadsheets
 https://www.googleapis.com/auth/presentations
+https://www.googleapis.com/auth/contacts
 ```
 
 ### Choose the audience
@@ -110,15 +113,17 @@ connection new tokens and keeps its settings.
 
 Google's consent screen lists every permission Personal Agent Proxy asks for, and the person can
 untick some. An action whose permission was unticked is unavailable to every agent, marked "Not
-allowed at sign-in", until the person signs in again from the connection's page.
+allowed at sign-in", until the person signs in again from the connection's page. A connection made
+before Calendar and Contacts joined has their actions marked the same way, until it is signed in
+again.
 
 ### Review the defaults
 
-What agents are allowed starts with Read files alone, as a new mailbox gives agents no access to
-its email. Turn actions on or off for every agent on the connection's page, or only for one agent
-on the agent's page. A line above the permissions says what that means
-for the account: what is ticked is what agents can read and do with it, and nothing from Google is
-used to train a model.
+A new connection gives agents nothing, as a new mailbox gives agents no access to its email. The
+connection's page shows the actions under Gmail, Calendar, Drive and Contacts, each saying how many
+are on, with **Enable all** above them, or **Disable all** once every one is on. Turn actions on or
+off for every agent there, or only for one agent on the agent's page. A line above the permissions
+says what that means for the account: what is ticked is what agents can read and do with it.
 
 </Steps>
 
@@ -140,6 +145,29 @@ can allow each action separately:
   Received messages are never edited or deleted.
 - **Send** sends a new email or a saved draft from the account's own address, and Gmail files it
   in Sent. It does not require Read email, so an agent can send without seeing the mailbox.
+
+For Calendar, agents see the calendars in the account's list, the primary one first, and inside
+each its events from now on, the soonest first, 50 to a page, each time a repeating event comes
+round its own. A search is Google's, in titles, descriptions, locations and guests; one that begins
+with a day, such as `2026-10-15 standup`, lists from that day on, earlier days too. Times read
+with their offset, `2026-10-15T14:00:00+02:00`, and an all-day event as its first and last day.
+
+- **Read events** lists, searches and opens events: their times, location, description, guests
+  and their answers, the organizer, the video call and whether they repeat.
+- **Create and edit events** makes events in a calendar the account can edit, the primary one
+  unless another is named, and changes their title, times, location and description, and requires
+  Read events. A time is written as `2026-10-15T14:00`, on the calendar's clock, or with an offset;
+  a day alone makes an all-day event. Without an end an event lasts an hour, or the day, and a
+  start moved without a new end keeps the event as long as it was. An event made or changed without
+  guests tells no one.
+- **Invite guests** adds guests to events and lets an agent change an event that has guests, and
+  requires Create and edit events. Google emails the guests the invitation and every change, as
+  Google Calendar does, so an agent with Create and edit events alone can't touch an event someone
+  else is invited to.
+- **Answer invitations** accepts or declines an event someone else invited the account to, or
+  answers maybe, and requires Read events. Google tells the organizer.
+
+Events are never deleted.
 
 For Drive, Docs, Sheets and Slides:
 
@@ -174,6 +202,18 @@ A range without a tab is in the first one. Reading needs Read files and answers 
 Sheets shows them, as CSV, one row a line, 1000 rows at most.
 Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
 `=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
+
+For Contacts, agents see the account's contacts in Google Contacts, the most recently changed
+first, 50 to a page. A search is Google's, matching the start of a name, email address, phone
+number or company, and answers the first 30 it finds. Emails and phone numbers are comma-separated,
+addresses one a line, and a birthday is `1990-04-12`, or `04-12` without the year.
+
+- **Read contacts** lists, searches and opens contacts.
+- **Add and edit contacts** adds contacts and changes their details, and requires Read contacts.
+  An edit changes only the fields written differently, and an email, number or address still
+  there keeps its label, such as work or home.
+
+Contacts are never deleted. The people Gmail saves on its own, under Other contacts, aren't listed.
 
 ## Troubleshooting
 

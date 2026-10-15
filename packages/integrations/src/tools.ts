@@ -110,12 +110,24 @@ function objectSchema(
 	return {type: 'object', properties, required, additionalProperties: false};
 }
 
-// The fields a write sets: every one that is typed in rather than set by the provider.
-function valueProperties(collection: Collection): Record<string, JsonSchemaProperty> {
+// The fields a write sets: every one that is typed in rather than set by the provider, saying
+// which need an action of their own, as an event's guests need Invite guests.
+function valueProperties(
+	integration: Integration,
+	collection: Collection,
+): Record<string, JsonSchemaProperty> {
 	return Object.fromEntries(
 		collection.fields
 			.filter((field) => !field.system)
-			.map((field) => [field.key, fieldProperty(field)]),
+			.map((field) => {
+				const property = fieldProperty(field);
+				const needed = integration.actions.find((action) => action.id === field.action);
+				if (!needed) {
+					return [field.key, property];
+				}
+				const description = `${property.description}. Only with ${needed.label}, as is changing a ${collection.singular} where it holds anything`;
+				return [field.key, {...property, description}];
+			}),
 	);
 }
 
@@ -169,7 +181,8 @@ function listDescription(collection: Collection): string {
 	const nested = collection.nested
 		? ` ${collection.name} hold others: one with hasChildren lists what is inside it as parent, and the list says where it is in trail.`
 		: '';
-	return `List ${collection.name.toLowerCase()}, newest first, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
+	const order = collection.upcoming ? 'from now on, soonest first' : 'newest first';
+	return `List ${collection.name.toLowerCase()}, ${order}, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
 }
 
 function collectionTools(integration: Integration, collection: Collection): CollectionTool[] {
@@ -222,7 +235,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 					description: `${createLabel}: a new ${collection.singular} from the fields given; any left out are empty.`,
 					inputSchema: objectSchema({
 						...parentProperty(collection, 'to make it inside'),
-						...valueProperties(collection),
+						...valueProperties(integration, collection),
 					}),
 				})
 			: []),
@@ -230,7 +243,10 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 			? make('update', 'update', {
 					title: `Edit ${collection.singular}`,
 					description: `Edit a ${collection.singular}: only the fields given change.${conditionText(collection, collection.editable)}`,
-					inputSchema: objectSchema({id: ID_PROPERTY, ...valueProperties(collection)}, ['id']),
+					inputSchema: objectSchema(
+						{id: ID_PROPERTY, ...valueProperties(integration, collection)},
+						['id'],
+					),
 					where: collection.editable,
 				})
 			: []),
@@ -249,7 +265,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 				return make('newCommand', command.id, {
 					title: command.label,
 					description: `${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
-					inputSchema: objectSchema(valueProperties(collection)),
+					inputSchema: objectSchema(valueProperties(integration, collection)),
 					readOnly: command.readOnly,
 				});
 			}

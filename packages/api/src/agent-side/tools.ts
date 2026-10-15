@@ -111,7 +111,8 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 // Who runs a tool and which way it came in: the web app's agent pages, or the MCP server.
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
 
-type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: CollectionTool};
+// `actions` are what the agent can do with the connection, and `refuse` why it can't do another.
+type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError};
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -153,14 +154,21 @@ export function runAgentTool(caller: AgentCaller, connectionId: string, toolName
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
-		const run: ToolRun = {caller, target: {connection, collection}, connector: $(requirePresent(connector, ApiErr.notFound('tool', toolName))), tool};
+		const unavailable = unavailableActions(connection);
+		const run: ToolRun = {
+			caller,
+			target: {connection, collection},
+			connector: $(requirePresent(connector, ApiErr.notFound('tool', toolName))),
+			tool,
+			actions: actionsOf(agent, connection, integration, unavailable),
+			refuse: (actionId) => refusal(integration, agent, connection, unavailable, actionId),
+		};
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;
-		const unavailable = unavailableActions(connection);
-		if (!actionsOf(agent, connection, integration, unavailable).includes(tool.action)) {
+		if (!run.actions.includes(tool.action)) {
 			$(await log(run, 'denied', null, searchOf(listParams)));
-			return $(Err(refusal(integration, agent, connection, unavailable, tool.action)));
+			return $(Err(run.refuse(tool.action)));
 		}
 		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
 	});
@@ -287,9 +295,27 @@ function get(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiErro
 	});
 }
 
+// A write needs the action of each field holding anything, before it or after it, beyond its own:
+// inviting guests to an event, or changing one they are invited to, needs Invite guests. One
+// without it is refused and logged as denied, with the record's title where there is one.
+function requireFieldActions(run: ToolRun, values: RecordValues, before: RecordValues = {}): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const missing = run.target.collection.fields.find(
+			(field) => field.action !== undefined && !run.actions.includes(field.action) && [values[field.key], before[field.key]].some((value) => (value ?? '').trim() !== ''),
+		);
+		if (missing?.action === undefined) {
+			return;
+		}
+		$(await log(run, 'denied', recordTitle(run.target.collection, {...before, ...values})));
+		return $(Err(run.refuse(missing.action)));
+	});
+}
+
 function create(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const record = $(await run.connector.create(run.target, $(parseRecordValues(run.target.collection, fieldsOf(params))), params.parent ?? null));
+		const values = $(parseRecordValues(run.target.collection, fieldsOf(params)));
+		$(await requireFieldActions(run, values));
+		const record = $(await run.connector.create(run.target, values, params.parent ?? null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});
@@ -304,6 +330,7 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 		$(requireApplies(run.tool.where, before));
 		const current = Object.fromEntries(collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const values = $(parseRecordValues(collection, {...current, ...fieldsOf(params)}));
+		$(await requireFieldActions(run, values, before.values));
 		const record = $(await run.connector.update(run.target, recordId, values, before));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
 		return {record};

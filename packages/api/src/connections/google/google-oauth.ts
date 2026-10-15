@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do, type FetchError, httpRequest, parseSchema, re
 
 import type {GoogleClient} from '../../utils/google-oauth-client';
 import {decryptSecret} from '../../utils/secret-crypto';
+import {PRODUCT_SCOPES} from './scopes';
 
 /**
  * Signing in to Google for a connection: OAuth 2.0 with PKCE against Google's own endpoints, with
@@ -23,17 +24,8 @@ const TIMEOUT_MS = 15_000;
 // Refreshed a minute early, so a token doesn't run out between the check and the call.
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** Every scope a sign-in asks for: the account's address, then Gmail, Drive, Docs, Sheets and Slides. */
-export const GOOGLE_SCOPES = [
-	'openid',
-	'https://www.googleapis.com/auth/userinfo.email',
-	'https://www.googleapis.com/auth/gmail.modify',
-	'https://www.googleapis.com/auth/gmail.send',
-	'https://www.googleapis.com/auth/drive',
-	'https://www.googleapis.com/auth/documents',
-	'https://www.googleapis.com/auth/spreadsheets',
-	'https://www.googleapis.com/auth/presentations',
-];
+/** Every scope a sign-in asks for: the account's address, then Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts. */
+export const GOOGLE_SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email', ...PRODUCT_SCOPES];
 
 /** What a Google connection stores, encrypted: its tokens, the scopes Google granted, and the account. */
 export const googleCredentialSchema = z.object({

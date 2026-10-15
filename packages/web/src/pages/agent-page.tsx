@@ -245,8 +245,8 @@ type GridProps = {
 };
 
 // Every connection, Information first, with a checkbox per action. Each starts folded to a line
-// saying whether the agent follows its default or has changed something. A filter narrows them to the connections and actions it
-// names, and Changed only keeps the actions the agent has a setting of its own for; either opens
+// saying whether the agent follows its default or has changed something. A filter narrows them to
+// the connections, actions and groups of actions (Calendar) it names, and Changed only keeps the actions the agent has a setting of its own for; either opens
 // everything it keeps.
 function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 	const [query, setQuery] = useState('');
@@ -275,7 +275,9 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 		const named = [label, connection.account].some(matches);
 		const actions = integration.actions
 			.filter((action) => !changedOnly || own[action.id] !== undefined)
-			.filter((action) => named || matches(action.label) || matches(action.description));
+			.filter(
+				(action) => named || [action.label, action.description, action.group ?? ''].some(matches),
+			);
 		if (actions.length === 0) {
 			return [];
 		}

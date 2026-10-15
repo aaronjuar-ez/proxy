@@ -3,14 +3,17 @@ import {Err, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError} from '@proxy/utils';
 
 import type {CommandRunner, Connector, NewCommandRunner, RecordTarget} from './connector';
+import {contactsConnector} from './google-contacts';
 import {gmailConnector} from './google-emails';
+import {eventsConnector} from './google-events';
 import {createFilesRecord, getFilesRecord, listFilesTree, trashFilesRecord, updateFilesRecord} from './google-files';
 import {rangesConnector} from './google-ranges';
 
 /**
  * A Google account, fetched live from Google's APIs with the connection's tokens, one collection
- * per product: `emails`, Gmail (`google-emails.ts`), `files`, Drive with Docs, Sheets and Slides
- * (`google-files.ts`), and `ranges`, a spreadsheet's values in A1 notation (`google-ranges.ts`).
+ * per product: `emails`, Gmail (`google-emails.ts`), `events`, Calendar (`google-events.ts`),
+ * `files`, Drive with Docs, Sheets and Slides (`google-files.ts`), `ranges`, a spreadsheet's values
+ * in A1 notation (`google-ranges.ts`), and `contacts`, Google Contacts (`google-contacts.ts`).
  * Commands go to the collection they were run on, since two can share an id, as Trash does.
  */
 
@@ -28,7 +31,7 @@ const filesConnector: Connector = {
 	commands: {trash: trashFilesRecord},
 };
 
-const COLLECTIONS: Partial<Record<string, Connector>> = {emails: gmailConnector, files: filesConnector, ranges: rangesConnector};
+const COLLECTIONS: Partial<Record<string, Connector>> = {emails: gmailConnector, events: eventsConnector, files: filesConnector, ranges: rangesConnector, contacts: contactsConnector};
 
 function unknownCollection(target: RecordTarget): Promise<Result<never, ApiError>> {
 	return Promise.resolve(Err(ApiErr.notFound('collection', target.collection.id)));

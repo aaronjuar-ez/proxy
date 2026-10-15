@@ -204,7 +204,7 @@ const tracker = await connect({
 	defaults: ['read', 'create'],
 });
 
-// Made-up tokens, like Linear's: opening a file or an email fails.
+// Made-up tokens, like Linear's: opening a file, an email, an event or a contact fails.
 const googleAccount = await connect({
 	integrationId: 'google',
 	account: 'demo.user@gmail.com',
@@ -218,16 +218,19 @@ const googleAccount = await connect({
 				'https://www.googleapis.com/auth/userinfo.email',
 				'https://www.googleapis.com/auth/gmail.modify',
 				'https://www.googleapis.com/auth/gmail.send',
+				'https://www.googleapis.com/auth/calendar.events',
+				'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 				'https://www.googleapis.com/auth/drive',
 				'https://www.googleapis.com/auth/documents',
 				'https://www.googleapis.com/auth/spreadsheets',
 				'https://www.googleapis.com/auth/presentations',
+				'https://www.googleapis.com/auth/contacts',
 			],
 			email: 'demo.user@gmail.com',
 		}),
 	),
 	daysAgo: 1,
-	defaults: ['readFiles'],
+	defaults: ['readEmails', 'readEvents', 'writeEvents', 'readFiles'],
 });
 
 const connections: [Connection, ...Connection[]] = [

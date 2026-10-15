@@ -8,7 +8,7 @@ import {Button} from '@proxy/ui/components/button';
 import {useAgentTarget} from '@/hooks/use-agent-target';
 import {allows, recordTitle} from '@/lib/access';
 import {agentErrorMessage} from '@/lib/agent-errors';
-import {inside} from '@/lib/agent-paths';
+import {inside, recordPath} from '@/lib/agent-paths';
 import type {agentRecordLoader} from '@/agent-loaders';
 import {AgentDenied, AgentMissing} from '@/pages/agent/agent-collection-page';
 
@@ -149,7 +149,7 @@ export function AgentRecordPage() {
 							}
 							setError(null);
 							setEditing(false);
-							navigate(`${listPath}/${result.value.record?.id ?? record.id}`, {replace: true});
+							navigate(recordPath(listPath, result.value.record?.id ?? record.id), {replace: true});
 						}}
 					/>
 				) : (

@@ -63,7 +63,14 @@ function googleRow(scopes: string[]) {
 }
 
 // The person unticked Drive on Google's consent screen.
-const withoutDrive = googleRow(['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/gmail.modify']);
+const withoutDrive = googleRow([
+	'openid',
+	'https://www.googleapis.com/auth/userinfo.email',
+	'https://www.googleapis.com/auth/gmail.modify',
+	'https://www.googleapis.com/auth/calendar.events',
+	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+	'https://www.googleapis.com/auth/contacts',
+]);
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
 	return {

@@ -10,6 +10,9 @@ export type Field = {
 	options?: string[];
 	// Set by the provider rather than typed in, such as when an email arrived: shown, never edited.
 	system?: boolean;
+	// The action writing it needs beyond the collection's write: creating or editing a record where
+	// it holds anything, before the write or after it, as an event's guests need Invite guests.
+	action?: string;
 };
 
 // One thing an agent can be allowed to do with a connection, set on its own: Read, Archive, Send.
@@ -26,6 +29,9 @@ export type Action = {
 	requires?: string;
 	// Reaches people beyond the account, as sending email does.
 	reachesOthers?: true;
+	// The part of the provider it belongs to, as Google's actions are Gmail's, Calendar's, Drive's or
+	// Contacts': a connection's permissions show each group's actions under its name.
+	group?: string;
 };
 
 // The records a write or a command applies to, by a field's value: drafts, or emails in the inbox.
@@ -67,6 +73,9 @@ export type Collection = {
 	// Records hold others of the collection, as a Notion page holds its subpages or a folder its
 	// files: a list opens at one of them with `?parent=`, and a record made there goes in it.
 	nested?: boolean;
+	// Listed from now on, soonest first, as a calendar's events are, rather than newest first: a
+	// list's next page is later rather than older.
+	upcoming?: true;
 	// The integration's action listing and opening records needs. A collection without one is
 	// never listed or opened: a query's results are only ever run.
 	read?: string;

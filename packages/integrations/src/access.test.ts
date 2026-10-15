@@ -32,6 +32,7 @@ test("every read, write, command and requirement names one of the integration's 
 				...(one.read ? [one.read] : []),
 				...Object.values(one.writes),
 				...(one.commands ?? []).map((command) => command.action),
+				...one.fields.flatMap((field) => (field.action ? [field.action] : [])),
 			]),
 		];
 		expect(named.filter((id) => !ids.includes(id))).toEqual([]);
@@ -55,6 +56,16 @@ describe('effectiveActions', () => {
 		]);
 	});
 
+	test('an action counts only while the whole chain under it does', () => {
+		const google = integration('google');
+		expect(effectiveActions(google, ['readEvents', 'writeEvents', 'inviteGuests'])).toEqual([
+			'readEvents',
+			'writeEvents',
+			'inviteGuests',
+		]);
+		expect(effectiveActions(google, ['writeEvents', 'inviteGuests'])).toEqual([]);
+	});
+
 	test('sending needs nothing else', () => {
 		expect(effectiveActions(email, ['send'])).toEqual(['send']);
 	});
@@ -68,6 +79,14 @@ describe('effectiveActions', () => {
 		expect(effectiveActions(email, ['send'], {send: true}, ['send'])).toEqual([]);
 		expect(effectiveActions(email, ['read', 'send'], {}, ['send'])).toEqual(['read']);
 	});
+});
+
+test("an integration's groups each hold their actions together, in one run", () => {
+	for (const each of INTEGRATIONS) {
+		const groups = each.actions.map((action) => action.group);
+		const runs = groups.filter((group, index) => group !== groups[index - 1]);
+		expect(runs).toEqual([...new Set(runs)]);
+	}
 });
 
 describe('requiredAction', () => {

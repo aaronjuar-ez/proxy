@@ -199,9 +199,16 @@ describe('postgres and mysql', () => {
 describe('google', () => {
 	const google = integration('google');
 
-	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, and ranges are only run', () => {
+	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, ranges are only run, and events and contacts are never deleted', () => {
 		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
 			...integrationTools(email).map((tool) => tool.name),
+			'events_list',
+			'events_get',
+			'events_create',
+			'events_update',
+			'events_accept',
+			'events_decline',
+			'events_maybe',
 			'files_list',
 			'files_get',
 			'files_create',
@@ -209,7 +216,38 @@ describe('google', () => {
 			'files_trash',
 			'ranges_read',
 			'ranges_write',
+			'contacts_list',
+			'contacts_get',
+			'contacts_create',
+			'contacts_update',
 		]);
+	});
+
+	test('an event is made inside a calendar, its guests need Invite guests, and only events are edited', () => {
+		const create = findTool(google, 'events_create');
+
+		expect(create?.action).toBe('writeEvents');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'title',
+			'start',
+			'end',
+			'location',
+			'guests',
+			'description',
+		]);
+		expect(create?.inputSchema.properties?.guests?.description).toContain('Invite guests');
+		const update = findTool(google, 'events_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'kind',
+			values: ['Event'],
+		});
+		expect(findTool(google, 'events_list')?.description).toContain('soonest first');
+		expect(findTool(google, 'events_accept')).toMatchObject({
+			action: 'respondEvents',
+			reachesOthers: true,
+			where: {field: 'response', values: ['Needs action', 'Accepted', 'Declined', 'Maybe']},
+		});
 	});
 
 	test('a file is made from its kind, name and content, inside the folder given, and trashing leaves out tabs and rows', () => {

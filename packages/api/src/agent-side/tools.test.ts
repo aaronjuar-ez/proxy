@@ -390,6 +390,79 @@ describe('nested collections', () => {
 	});
 });
 
+// An event's guests are told of what is done to it, so they need Invite guests beyond the write.
+describe('a field that needs an action of its own', () => {
+	const calendarScopes = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
+	const calendarConnection = {
+		...googleConnection,
+		defaults: [{actionId: 'readEvents'}, {actionId: 'writeEvents'}],
+		credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: calendarScopes, email: 'alex@example.com'})}`,
+	};
+	const alone = {
+		id: 'alex@example.com:ev1',
+		values: {title: 'Focus', kind: 'Event', start: '2026-10-15T09:00:00+02:00', end: '2026-10-15T11:00:00+02:00', guests: ''},
+		updatedAt: '2026-10-01T00:00:00.000Z',
+	};
+	const meeting = {...alone, id: 'alex@example.com:ev2', values: {...alone.values, title: 'Q4 planning', guests: 'sam@example.com'}};
+	const inviting = {...agent, grants: [{connectionId: 'google-1', actionId: 'inviteGuests', allowed: true}]};
+
+	beforeEach(() => {
+		useConnection(calendarConnection);
+		connector.create.mockResolvedValue(Ok(meeting));
+		connector.update.mockResolvedValue(Ok(meeting));
+	});
+
+	test('an event without guests is made and edited with the write alone', async () => {
+		connector.get.mockResolvedValue(Ok(alone));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Focus', start: '2026-10-15T09:00'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: alone.id, title: 'Deep work'});
+
+		expect(created.isOk()).toBe(true);
+		expect(updated.isOk()).toBe(true);
+	});
+
+	test('inviting guests, or changing an event that has them, is refused without Invite guests and logged as denied', async () => {
+		connector.get.mockResolvedValue(Ok(meeting));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: meeting.id, title: 'Q4 planning, moved'});
+
+		expect(created.unwrapErr().kind).toBe('forbidden');
+		expect(updated.unwrapErr().kind).toBe('forbidden');
+		expect(connector.create).not.toHaveBeenCalled();
+		expect(connector.update).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls.map(([entry]) => [entry.action, entry.recordTitle, entry.outcome])).toEqual([
+			['create', 'Q4 planning', 'denied'],
+			['update', 'Q4 planning, moved', 'denied'],
+		]);
+	});
+
+	test('with Invite guests, both go through', async () => {
+		getAgent.mockResolvedValue(Ok(inviting));
+		connector.get.mockResolvedValue(Ok(meeting));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: meeting.id, guests: 'sam@example.com, lee@example.com'});
+
+		expect(created.isOk()).toBe(true);
+		expect(updated.isOk()).toBe(true);
+	});
+
+	test("without Calendar's scopes, Invite guests is refused saying to sign in again", async () => {
+		useConnection({...calendarConnection, credential: googleConnection.credential});
+		getAgent.mockResolvedValue(Ok(inviting));
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Create and edit events at sign-in. Sign in to Google again to allow it."});
+	});
+});
+
 // A custom MCP server's tools, called as they are: by the tool's name, with its params as given.
 describe('custom MCP servers', () => {
 	const search = {name: 'search_docs', title: 'Search docs', inputSchema: {type: 'object', properties: {query: {type: 'string'}}}, annotations: {readOnlyHint: true}};

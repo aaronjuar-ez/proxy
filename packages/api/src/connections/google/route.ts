@@ -27,6 +27,6 @@ export const {handleStart: handleStartGoogleRoute, handleCallback: handleGoogleC
 	finish: ({redirectUri, code, verifier}) =>
 		Do(async ($) => {
 			const {account, credential} = $(await exchangeGoogleCode($(requireGoogleClient()), {redirectUri, code, verifier}));
-			return {account: account.email, accountId: account.id, credential, defaults: ['readFiles']};
+			return {account: account.email, accountId: account.id, credential, defaults: []};
 		}),
 });

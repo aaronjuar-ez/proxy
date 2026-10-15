@@ -43,10 +43,13 @@ const SCOPES = [
 	'https://www.googleapis.com/auth/userinfo.email',
 	'https://www.googleapis.com/auth/gmail.modify',
 	'https://www.googleapis.com/auth/gmail.send',
+	'https://www.googleapis.com/auth/calendar.events',
+	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 	'https://www.googleapis.com/auth/drive',
 	'https://www.googleapis.com/auth/documents',
 	'https://www.googleapis.com/auth/spreadsheets',
 	'https://www.googleapis.com/auth/presentations',
+	'https://www.googleapis.com/auth/contacts',
 ];
 
 function base64url(value: object): string {
@@ -185,7 +188,7 @@ describe('handleGoogleCallbackRoute', () => {
 		});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(findAccountConnection).toHaveBeenCalledWith({orgId: 'org-1', integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093'});
-		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093', defaults: ['readFiles']});
+		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'google', account: 'alex@example.com', providerAccountId: '1093', defaults: []});
 		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({
 			accessToken: 'access-1',
 			refreshToken: 'refresh-1',

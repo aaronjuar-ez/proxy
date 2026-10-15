@@ -20,10 +20,13 @@ const ALL_SCOPES = [
 	'https://www.googleapis.com/auth/userinfo.email',
 	'https://www.googleapis.com/auth/gmail.modify',
 	'https://www.googleapis.com/auth/gmail.send',
+	'https://www.googleapis.com/auth/calendar.events',
+	'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 	'https://www.googleapis.com/auth/drive',
 	'https://www.googleapis.com/auth/documents',
 	'https://www.googleapis.com/auth/spreadsheets',
 	'https://www.googleapis.com/auth/presentations',
+	'https://www.googleapis.com/auth/contacts',
 ];
 
 function google(scopes: string[]) {
@@ -50,6 +53,21 @@ describe('unavailableActions', () => {
 		const withoutModify = ALL_SCOPES.filter((scope) => !scope.endsWith('/gmail.modify'));
 		expect(unavailableActions(google(withoutModify))).toEqual(['readEmails', 'markEmails', 'flagEmails', 'archiveEmails', 'writeEmails', 'trashEmails']);
 		expect(unavailableActions(google(withoutModify.filter((scope) => !scope.endsWith('/gmail.send'))))).toContain('sendEmails');
+	});
+
+	test('Calendar needs both its scopes, its events and the list of calendars holding them', async () => {
+		const {unavailableActions} = await import('./unavailable');
+		const calendar = ['readEvents', 'writeEvents', 'respondEvents', 'inviteGuests'];
+
+		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.events'))))).toEqual(calendar);
+		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/calendar.calendarlist.readonly'))))).toEqual(calendar);
+	});
+
+	test('a Google sign-in from before Calendar and Contacts joined leaves their actions out', async () => {
+		const {unavailableActions} = await import('./unavailable');
+		const before = ALL_SCOPES.filter((scope) => !/\/(calendar\.|contacts)/.test(scope));
+
+		expect(unavailableActions(google(before))).toEqual(['readEvents', 'writeEvents', 'respondEvents', 'inviteGuests', 'readContacts', 'writeContacts']);
 	});
 
 	test('every other integration covers all its actions, whatever its credential', async () => {

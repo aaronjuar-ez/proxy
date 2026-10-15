@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import {afterEach, describe, expect, mock, test} from 'bun:test';
-import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {ConnectionAccess} from '@/components/connection-access';
 import {findIntegration, type Action} from '@proxy/integrations';
 
@@ -269,5 +269,105 @@ describe('ConnectionAccess with what the sign-in covered', () => {
 		expect(read.getAttribute('aria-checked')).toBe('true');
 		expect(read.hasAttribute('data-disabled')).toBe(false);
 		expect(screen.queryByText(/Not allowed at sign-in/)).toBeNull();
+	});
+
+	test("an integration's actions are shown under each group's name, saying how many are on", () => {
+		const google = findIntegration('google')?.actions ?? [];
+		render(
+			<ConnectionAccess
+				actions={google}
+				defaults={['readEmails', 'readFiles', 'createFiles']}
+				unavailable={['readContacts']}
+				onChange={mock()}
+			/>,
+		);
+
+		const sections = screen.getAllByRole('region');
+		expect(sections.map((section) => section.querySelector('h3')?.textContent)).toEqual([
+			'Gmail',
+			'Calendar',
+			'Drive',
+			'Contacts',
+		]);
+		expect(sections.map((section) => section.querySelector('h3 + span')?.textContent)).toEqual([
+			'1 of 7 on',
+			'None on',
+			'2 of 4 on',
+			'None on',
+		]);
+		expect(
+			within(sections[1] as HTMLElement).getByRole('checkbox', {name: /^Invite guests/}),
+		).toBeTruthy();
+	});
+
+	test('actions without groups are one list, with no heading', () => {
+		render(<ConnectionAccess actions={actions} defaults={['read']} onChange={mock()} />);
+
+		expect(screen.queryAllByRole('region')).toEqual([]);
+	});
+
+	test('Enable all turns on every action the sign-in covered, in one change', async () => {
+		const onChange = mock();
+		render(
+			<ConnectionAccess
+				actions={actions}
+				defaults={['read']}
+				unavailable={['send']}
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Enable all'}));
+
+		const ids = actions.map((action) => action.id).filter((id) => id !== 'read' && id !== 'send');
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith(Object.fromEntries(ids.map((id) => [id, true]))),
+		);
+	});
+
+	test('once every action is on, the button turns them all off', async () => {
+		const onChange = mock();
+		const ids = actions.map((action) => action.id);
+		render(<ConnectionAccess actions={actions} defaults={ids} onChange={onChange} />);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Disable all'}));
+
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith(Object.fromEntries(ids.map((id) => [id, false]))),
+		);
+	});
+
+	test("on an agent's page, an action set back to the default follows it rather than being kept", async () => {
+		const onChange = mock();
+		const ids = actions.map((action) => action.id);
+		render(
+			<ConnectionAccess
+				actions={actions}
+				defaults={['read']}
+				own={Object.fromEntries(ids.map((id) => [id, true]))}
+				onChange={onChange}
+				onMakeDefault={mock()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Disable all'}));
+
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith(
+				Object.fromEntries(ids.map((id) => [id, id === 'read' ? false : null])),
+			),
+		);
+	});
+
+	test('Enable all ticks every box at once while its one save is under way', () => {
+		const onChange = mock(() => new Promise<void>(() => {}));
+		render(<ConnectionAccess actions={actions} defaults={[]} onChange={onChange} />);
+
+		fireEvent.click(screen.getByRole('button', {name: 'Enable all'}));
+
+		expect(
+			screen.getAllByRole('checkbox').map((checkbox) => checkbox.getAttribute('aria-checked')),
+		).toEqual(actions.map(() => 'true'));
+		expect(screen.getByRole('button', {name: 'Disable all'})).toBeTruthy();
 	});
 });

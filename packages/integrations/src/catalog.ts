@@ -564,33 +564,42 @@ const postgres = sqlIntegration(
 
 const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or MariaDB database');
 
+// The answers to an invitation, on an event someone else invited the account to; empty on the
+// account's own events.
+const INVITED: Condition = {
+	field: 'response',
+	values: ['Needs action', 'Accepted', 'Declined', 'Maybe'],
+};
+
 // What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
 // A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
-// Gmail, Drive, Docs, Sheets and Slides. One connection holds every product, so action ids carry
-// the product, as Information's `readCards` and `writeCards` do. Gmail is the same email as any
-// mailbox's, its labels as folders: all mail but Spam and Trash in one list, narrowed to the inbox,
-// drafts, sent mail, the archive, Trash or Spam. Drafts are the only email edited or deleted;
-// nothing else is deleted for good, only moved to Trash. Drive is one tree: My Drive, Shared with
-// me, Shared drives and Recent at the top, folders holding files, a spreadsheet holding its tabs and
-// a tab its rows. Documents read as Markdown, presentations as text, rows as "Header: value" lines;
-// new documents are written as Markdown and new spreadsheets as CSV, which Drive converts, and a
-// spreadsheet's ranges are read and written in A1 notation as CSV. Files are moved to Trash, never
-// deleted. Nothing is copied: every request goes to Google.
+// Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts. One connection holds every product, so
+// action ids carry the product, as Information's `readCards` and `writeCards` do, and each action
+// names its product as its group. Gmail is the same email as any mailbox's, its labels as folders:
+// all mail but Spam and Trash in one list, narrowed to the inbox, drafts, sent mail, the archive,
+// Trash or Spam. Drafts are the only email edited or deleted; nothing else is deleted for good, only
+// moved to Trash. Calendar is one tree of the calendars and their events. Drive is one tree: My
+// Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
+// holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
+// "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
+// Drive converts, and a spreadsheet's ranges are read and written in A1 notation as CSV. Files are
+// moved to Trash, never deleted, and neither are events or contacts. Nothing is copied: every
+// request goes to Google.
 const google: Integration = {
 	id: 'google',
 	name: 'Google',
-	description: 'Gmail, Drive, Docs, Sheets and Slides for one Google account',
+	description: 'Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts for one Google account',
 	// Google's Limited Use policy asks for what happens with its data to be said where access is given.
-	disclosure:
-		'What is ticked here is what your agents can read and do with this Google account through Personal Agent Proxy, each time you ask them to. Personal Agent Proxy keeps only the sign-in and the activity log; nothing from Google is used to train a model.',
+	disclosure: 'What is ticked here is what your agents can read and do with this Google account.',
 	actions: [
 		{
 			id: 'readEmails',
 			label: 'Read email',
 			description: 'List, search and open email in Gmail, drafts and sent mail included',
 			risk: 'low',
+			group: 'Gmail',
 		},
 		{
 			id: 'markEmails',
@@ -598,6 +607,7 @@ const google: Integration = {
 			description: 'Mark emails in the inbox read or unread',
 			risk: 'low',
 			requires: 'readEmails',
+			group: 'Gmail',
 		},
 		{
 			id: 'flagEmails',
@@ -605,6 +615,7 @@ const google: Integration = {
 			description: 'Star and unstar emails in the inbox',
 			risk: 'low',
 			requires: 'readEmails',
+			group: 'Gmail',
 		},
 		{
 			id: 'archiveEmails',
@@ -612,6 +623,7 @@ const google: Integration = {
 			description: 'Move emails out of the inbox, keeping them in All Mail',
 			risk: 'medium',
 			requires: 'readEmails',
+			group: 'Gmail',
 		},
 		{
 			id: 'writeEmails',
@@ -619,27 +631,7 @@ const google: Integration = {
 			description: 'Create, edit and delete drafts',
 			risk: 'medium',
 			requires: 'readEmails',
-		},
-		{
-			id: 'readFiles',
-			label: 'Read files',
-			description:
-				'Browse and search Drive, and open files, documents, spreadsheets and presentations',
-			risk: 'low',
-		},
-		{
-			id: 'createFiles',
-			label: 'Create files',
-			description: 'Create folders, documents and spreadsheets, and add rows',
-			risk: 'medium',
-			requires: 'readFiles',
-		},
-		{
-			id: 'editFiles',
-			label: 'Edit files',
-			description: 'Rename files, replace a document’s content and change rows and ranges',
-			risk: 'medium',
-			requires: 'readFiles',
+			group: 'Gmail',
 		},
 		{
 			id: 'trashEmails',
@@ -647,6 +639,7 @@ const google: Integration = {
 			description: 'Move emails to Trash, where Gmail keeps them 30 days before deleting them',
 			risk: 'high',
 			requires: 'readEmails',
+			group: 'Gmail',
 		},
 		{
 			id: 'sendEmails',
@@ -654,6 +647,65 @@ const google: Integration = {
 			description: 'Send email from this address, new or from a draft',
 			risk: 'high',
 			reachesOthers: true,
+			group: 'Gmail',
+		},
+		{
+			id: 'readEvents',
+			label: 'Read events',
+			description: 'See your calendars, and list, search and open their events',
+			risk: 'low',
+			group: 'Calendar',
+		},
+		{
+			id: 'writeEvents',
+			label: 'Create and edit events',
+			description: 'Create events and change them, on calendars you can edit',
+			risk: 'medium',
+			requires: 'readEvents',
+			group: 'Calendar',
+		},
+		{
+			id: 'respondEvents',
+			label: 'Answer invitations',
+			description: 'Accept or decline invitations, or answer maybe; the organizer is told',
+			risk: 'medium',
+			requires: 'readEvents',
+			reachesOthers: true,
+			group: 'Calendar',
+		},
+		{
+			id: 'inviteGuests',
+			label: 'Invite guests',
+			description:
+				'Invite people to events and change events that have guests; Google emails them each invitation and change',
+			risk: 'high',
+			requires: 'writeEvents',
+			reachesOthers: true,
+			group: 'Calendar',
+		},
+		{
+			id: 'readFiles',
+			label: 'Read files',
+			description:
+				'Browse and search Drive, and open files, documents, spreadsheets and presentations',
+			risk: 'low',
+			group: 'Drive',
+		},
+		{
+			id: 'createFiles',
+			label: 'Create files',
+			description: 'Create folders, documents and spreadsheets, and add rows',
+			risk: 'medium',
+			requires: 'readFiles',
+			group: 'Drive',
+		},
+		{
+			id: 'editFiles',
+			label: 'Edit files',
+			description: 'Rename files, replace a document’s content and change rows and ranges',
+			risk: 'medium',
+			requires: 'readFiles',
+			group: 'Drive',
 		},
 		{
 			id: 'trashFiles',
@@ -662,6 +714,22 @@ const google: Integration = {
 				'Move files and folders to Trash, where Drive keeps them 30 days before deleting them',
 			risk: 'high',
 			requires: 'readFiles',
+			group: 'Drive',
+		},
+		{
+			id: 'readContacts',
+			label: 'Read contacts',
+			description: 'List, search and open your contacts',
+			risk: 'low',
+			group: 'Contacts',
+		},
+		{
+			id: 'writeContacts',
+			label: 'Add and edit contacts',
+			description: 'Add contacts and change their details',
+			risk: 'medium',
+			requires: 'readContacts',
+			group: 'Contacts',
 		},
 	],
 	collections: [
@@ -681,6 +749,84 @@ const google: Integration = {
 				'Gmail’s own search syntax, as in Gmail’s search box, such as from:sam has:attachment newer_than:7d. Inside a folder, only what is in it.',
 			flag: STAR,
 		}),
+		// The calendars the account sees, each holding its events: from now on, soonest first, every
+		// time a repeating event comes round its own record. Times are written as Google takes them,
+		// 2026-10-15T14:00 in the calendar's time zone or with an offset, and a day alone, 2026-10-15,
+		// for an all-day event, whose end is its last day. An event with guests reaches them: inviting
+		// them, and any change once they are invited, needs Invite guests, and Google emails them.
+		{
+			id: 'events',
+			name: 'Events',
+			singular: 'event',
+			titleField: 'title',
+			summaryField: 'start',
+			searchHint:
+				'Words in an event’s title, description, location or guests, from now on. Begin with a day, such as 2026-10-15 standup, for the events from that day on, earlier ones too. At the top, in the primary calendar.',
+			nested: true,
+			upcoming: true,
+			read: 'readEvents',
+			writes: {create: 'writeEvents', update: 'writeEvents'},
+			// Calendars are only read.
+			editable: {field: 'kind', values: ['Event']},
+			commands: [
+				{
+					id: 'accept',
+					on: 'record',
+					label: 'Accept',
+					action: 'respondEvents',
+					where: INVITED,
+					done: 'Accepted {}',
+					tried: 'accept {}',
+				},
+				{
+					id: 'decline',
+					on: 'record',
+					label: 'Decline',
+					action: 'respondEvents',
+					where: INVITED,
+					done: 'Declined {}',
+					tried: 'decline {}',
+				},
+				{
+					id: 'maybe',
+					on: 'record',
+					label: 'Maybe',
+					action: 'respondEvents',
+					where: INVITED,
+					done: 'Answered maybe to {}',
+					tried: 'answer maybe to {}',
+				},
+			],
+			fields: [
+				{key: 'title', label: 'Title', type: 'text'},
+				{key: 'kind', label: 'Kind', type: 'select', options: ['Calendar', 'Event'], system: true},
+				{key: 'start', label: 'Start', type: 'text'},
+				// Left out of a new event, an hour after the start, or the start's day for an all-day one.
+				{key: 'end', label: 'End', type: 'text'},
+				{key: 'location', label: 'Location', type: 'text'},
+				// Everyone invited but the account itself and the rooms booked, by their addresses.
+				{key: 'guests', label: 'Guests', type: 'email', action: 'inviteGuests'},
+				{key: 'description', label: 'Description', type: 'longtext'},
+				// Each guest's answer, one a line: "Sam Lee <sam@example.com>: Accepted".
+				{key: 'answers', label: 'Guests’ answers', type: 'longtext', system: true},
+				// The account's own answer, on an event someone else invited it to.
+				{
+					key: 'response',
+					label: 'Your answer',
+					type: 'select',
+					options: INVITED.values,
+					system: true,
+				},
+				// Whoever organizes the event, when it isn't the account.
+				{key: 'organizer', label: 'Organizer', type: 'text', system: true},
+				// "Every week", for an event that repeats; each time it comes round is changed on its own.
+				{key: 'repeats', label: 'Repeats', type: 'text', system: true},
+				// The video call's address, where the event has one.
+				{key: 'meeting', label: 'Video call', type: 'text', system: true},
+				// The event in Google Calendar.
+				{key: 'link', label: 'Link', type: 'text', system: true},
+			],
+		},
 		{
 			id: 'files',
 			name: 'Files',
@@ -773,6 +919,32 @@ const google: Integration = {
 				{key: 'rows', label: 'Rows', type: 'text', system: true},
 				// The range's values as Sheets shows them, as CSV, one row a line: after Write, as written.
 				{key: 'result', label: 'Result', type: 'longtext', system: true},
+			],
+		},
+		// The account's contacts in Google Contacts, newest changed first. Emails and phone numbers are
+		// comma-separated, addresses one a line; a contact's birthday is 1990-04-12, or 04-12 without
+		// the year. Contacts are never deleted here.
+		{
+			id: 'contacts',
+			name: 'Contacts',
+			singular: 'contact',
+			titleField: 'name',
+			summaryField: 'emails',
+			searchHint:
+				'The start of a name, email address, phone number or company, as Google Contacts matches them: sam, sam@, +44.',
+			read: 'readContacts',
+			writes: {create: 'writeContacts', update: 'writeContacts'},
+			fields: [
+				{key: 'name', label: 'Name', type: 'text'},
+				{key: 'emails', label: 'Emails', type: 'email'},
+				{key: 'phones', label: 'Phone numbers', type: 'text'},
+				{key: 'company', label: 'Company', type: 'text'},
+				{key: 'jobTitle', label: 'Job title', type: 'text'},
+				{key: 'addresses', label: 'Addresses', type: 'longtext'},
+				{key: 'birthday', label: 'Birthday', type: 'text'},
+				{key: 'notes', label: 'Notes', type: 'longtext'},
+				// The contact in Google Contacts.
+				{key: 'link', label: 'Link', type: 'text', system: true},
 			],
 		},
 	],
