@@ -19,12 +19,16 @@ type Props = {
 	onChange: (actions: Record<string, boolean | null>) => Promise<void>;
 	// On an agent's page: makes the agent's own setting for an action the connection's default.
 	onMakeDefault?: (actionId: string, allowed: boolean) => Promise<void>;
+	// The actions the connection's sign-in didn't cover: off and disabled until it is signed in again.
+	unavailable?: string[];
 };
 
 // A connection's access, the way an editor shows its settings: one checkbox per action, the only
 // control for it. On an agent's page every action starts on the connection's default; one the
 // agent has its own setting for is marked with a bar, a button that makes it the default for
-// every agent, and one that resets it to the default.
+// every agent, and one that resets it to the default. An action the connection's sign-in didn't
+// cover is off whatever is set, its checkbox disabled, and can't be made the default from here,
+// since it shows off whatever the agent's own setting is.
 export function ConnectionAccess({
 	actions,
 	defaults,
@@ -32,6 +36,7 @@ export function ConnectionAccess({
 	differing,
 	onChange,
 	onMakeDefault,
+	unavailable = [],
 }: Props) {
 	// A connection's actions show on more than one page section, so the ids need their own prefix.
 	const idPrefix = useId();
@@ -43,8 +48,9 @@ export function ConnectionAccess({
 	defaultsRef.current = defaults;
 	ownRef.current = own;
 	const isDefault = (id: string) => defaults.includes(id);
+	const isUnavailable = (id: string) => unavailable.includes(id);
 	const storedIsOn = (id: string) => (own ? (own[id] ?? isDefault(id)) : isDefault(id));
-	const isOn = (id: string) => pending[id] ?? storedIsOn(id);
+	const isOn = (id: string) => !isUnavailable(id) && (pending[id] ?? storedIsOn(id));
 	const isOwn = (id: string) => own?.[id] !== undefined;
 	// On an agent's page, an action that matches the default follows it rather than being stored.
 	const setting = (id: string, next: boolean): boolean | null => {
@@ -98,6 +104,7 @@ export function ConnectionAccess({
 							id={inputId}
 							className="mt-0.5"
 							checked={checked}
+							disabled={isUnavailable(action.id)}
 							onCheckedChange={(next) => change(action.id, next)}
 						/>
 						<label htmlFor={inputId} className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -112,11 +119,13 @@ export function ConnectionAccess({
 							<span className="text-muted-foreground">
 								{action.description}
 								{blocked && required && ` · Off while ${required.label} is off`}
+								{isUnavailable(action.id) &&
+									' · Not allowed at sign-in. Sign in again to allow it.'}
 							</span>
 						</label>
 						<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
 							{others > 0 && `Changed for ${others} ${others === 1 ? 'agent' : 'agents'}`}
-							{isOwn(action.id) && onMakeDefault && (
+							{isOwn(action.id) && onMakeDefault && !isUnavailable(action.id) && (
 								<IconButton
 									label="Make this the default for every agent"
 									onClick={() =>
@@ -143,5 +152,19 @@ export function ConnectionAccess({
 				);
 			})}
 		</RowList>
+	);
+}
+
+// Under a connection's permissions when its sign-in didn't cover some actions. Signing in again
+// gives the same connection new tokens, its defaults and every agent's settings kept.
+export function SignInAgain({href, className}: {href: string; className?: string}) {
+	return (
+		<p className={cn('text-sm text-muted-foreground', className)}>
+			Some actions weren't allowed when this account was signed in.{' '}
+			<a href={href} className="text-foreground underline underline-offset-4">
+				Sign in again
+			</a>{' '}
+			to allow them.
+		</p>
 	);
 }

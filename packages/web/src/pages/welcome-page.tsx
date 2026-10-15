@@ -1,4 +1,4 @@
-import {AGENT_PROVIDERS, type Action} from '@proxy/integrations';
+import {AGENT_PROVIDERS} from '@proxy/integrations';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
@@ -8,13 +8,19 @@ import type {DatabaseDialect} from '@/client/connections-client';
 import {ConnectDatabaseForm} from '@/components/connect-database-form';
 import {ConnectEmailForm} from '@/components/connect-email-form';
 import {ConnectMcpForm} from '@/components/connect-mcp-form';
-import {ConnectionAccess} from '@/components/connection-access';
+import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {IntegrationCatalog} from '@/components/integration-catalog';
 import {StepHeading} from '@/components/step-heading';
 import {SuccessLine} from '@/components/success-line';
 import {Button} from '@proxy/ui/components/button';
 import {defaultActions, defaultsOnOrOff, integrationOf} from '@/lib/access';
-import {describeDatabase, EMAIL_FORM, signInFailedMessage} from '@/lib/integrations';
+import {
+	describeDatabase,
+	EMAIL_FORM,
+	signInFailedMessage,
+	signInPath,
+	type Integration,
+} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin, Connection} from '@/lib/types';
 import type {welcomeConnectionLoader, welcomeLoader} from '@/loaders';
@@ -115,7 +121,7 @@ export function WelcomeConnectionPage() {
 			<ConnectionStep
 				agentName={agentNameOf(agents)}
 				connection={connection}
-				actions={integration.actions}
+				integration={integration}
 			/>
 		</Frame>
 	);
@@ -264,16 +270,20 @@ function McpStep({onContinue}: {onContinue: (connection: Connection) => void}) {
 function ConnectionStep({
 	agentName,
 	connection,
-	actions,
+	integration,
 }: {
 	agentName: string;
 	connection: Connection;
-	actions: Action[];
+	integration: Integration;
 }) {
 	const navigate = useNavigate();
 	const {revalidate} = useRevalidator();
 	const [error, setError] = useState<string | null>(null);
 	const defaults = defaultActions(connection);
+	const signInAgain =
+		connection.unavailable.length > 0
+			? signInPath(connection.integrationId, {returnTo: 'welcome', account: connection.account})
+			: null;
 
 	return (
 		<>
@@ -284,10 +294,14 @@ function ConnectionStep({
 				any time on the connection's page.
 			</StepHeading>
 			<SuccessLine>Connection added successfully</SuccessLine>
+			{integration.disclosure && (
+				<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
+			)}
 			<div className="rounded-xl border bg-card px-1 py-1">
 				<ConnectionAccess
-					actions={actions}
+					actions={integration.actions}
 					defaults={defaults}
+					unavailable={connection.unavailable}
 					onChange={async (changes) => {
 						const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(changes));
 						setError(result.isErr() ? describeFetchError(result.error) : null);
@@ -295,7 +309,8 @@ function ConnectionStep({
 					}}
 				/>
 			</div>
-			{defaults.length === 0 && (
+			{signInAgain && <SignInAgain href={signInAgain} />}
+			{defaults.every((id) => connection.unavailable.includes(id)) && (
 				<p className="text-sm text-muted-foreground">
 					Nothing is ticked, so {agentName} can't use this account yet.
 				</p>

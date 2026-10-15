@@ -4,16 +4,12 @@ import {cn} from '@proxy/ui/lib/utils';
 import {PlusIcon} from 'lucide-react';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {RowList} from '@/components/row-list';
-import {INTEGRATIONS} from '@/lib/integrations';
+import {INTEGRATIONS, signInPath} from '@/lib/integrations';
 import type {Connection} from '@/lib/types';
 
-// The integrations connected by signing in to them. Their sign-in starts at
-// `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
-// connection, or to the catalog with `?error=<id>` when it didn't finish. Started with
-// `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog.
-// The rest are connected on a form of their own: a mailbox with an app password, a database with
-// a user's name and password, a custom MCP server by its address.
-const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
+// The integrations not connected by signing in to them are connected on a form of their own: a
+// mailbox with an app password, a database with a user's name and password, a custom MCP server by
+// its address.
 
 // The whole row is the link or button; its plus is styled as a ghost icon button that lights up
 // with the row.
@@ -37,7 +33,6 @@ export function IntegrationCatalog({
 	onConnectForm: (integrationId: IntegrationId) => void;
 }) {
 	const available = INTEGRATIONS.filter((integration) => !integration.builtIn);
-	const startQuery = returnTo ? `?returnTo=${returnTo}` : '';
 
 	return (
 		<RowList>
@@ -45,6 +40,7 @@ export function IntegrationCatalog({
 				const count = connections.filter(
 					(connection) => connection.integrationId === integration.id,
 				).length;
+				const signIn = signInPath(integration.id, {returnTo});
 				const content = (
 					<>
 						<IntegrationLogo integration={integration} className="size-7" />
@@ -64,8 +60,8 @@ export function IntegrationCatalog({
 				);
 				return (
 					<li key={integration.id}>
-						{SIGN_IN.includes(integration.id) ? (
-							<a href={`/api/connections/${integration.id}/start${startQuery}`} className={ROW}>
+						{signIn ? (
+							<a href={signIn} className={ROW}>
 								{content}
 							</a>
 						) : (

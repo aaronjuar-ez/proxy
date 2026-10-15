@@ -68,7 +68,8 @@ export function sqlConnectRoutes(dialect: SqlDialect): {
 				$(await checkDatabase(dialect, credential));
 
 				const row = $(await createConnection({orgId, integrationId: dialect, account, credential: encrypted, defaults: DEFAULTS}));
-				return toConnectionResponse(row);
+				// A password signs in to all of it: every action is available.
+				return toConnectionResponse(row, []);
 			}),
 	};
 }

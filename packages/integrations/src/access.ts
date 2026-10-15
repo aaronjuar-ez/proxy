@@ -9,15 +9,18 @@ export type OwnSettings = Partial<Record<string, boolean>>;
 
 /**
  * What an agent can do with a connection: its own setting for each action, else the default as it
- * is now, leaving out an action whose required one is off, as Archive is without Read.
+ * is now, leaving out an action whose required one is off, as Archive is without Read, and the
+ * `unavailable` ones the connection's sign-in didn't cover, whatever is ticked.
  */
 export function effectiveActions(
 	integration: Integration,
 	defaults: string[],
 	own: OwnSettings = {},
+	unavailable: string[] = [],
 ): string[] {
 	const chosen = integration.actions.filter(
-		(action) => own[action.id] ?? defaults.includes(action.id),
+		(action) =>
+			!unavailable.includes(action.id) && (own[action.id] ?? defaults.includes(action.id)),
 	);
 	return chosen
 		.filter((action) => !action.requires || chosen.some((other) => other.id === action.requires))

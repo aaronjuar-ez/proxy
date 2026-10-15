@@ -163,7 +163,10 @@ describe('handleConnectCustomMcpRoute', () => {
 			tools: JSON.stringify([search, publish]),
 			name: 'Docs',
 		});
-		expect(res.sent).toEqual({kind: 'connected', connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish], name: 'Docs'}});
+		expect(res.sent).toEqual({
+			kind: 'connected',
+			connection: {id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', defaults: ['search_docs'], tools: [search, publish], name: 'Docs', unavailable: []},
+		});
 	});
 
 	test('the connection needs a name, as nothing a server says would do', async () => {

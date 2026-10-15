@@ -40,8 +40,12 @@ type ReturnTo = z.infer<typeof returnToSchema>;
 
 type Route = (request: AuthenticatedRequest, res: Response) => Promise<void>;
 
-/** What the provider's sign-in is sent: where it comes back to, the state, and the PKCE challenge. */
-export type SignInRequest = {redirectUri: string; state: string; challenge: string};
+/**
+ * What the provider's sign-in is sent: where it comes back to, the state, the PKCE challenge, and
+ * the account a sign-in again is for (`?account=`), as a connection's page passes it, for a provider
+ * that can open its sign-in on it.
+ */
+export type SignInRequest = {redirectUri: string; state: string; challenge: string; account: string | null};
 
 /** The provider's sign-in page, and what to keep in the cookie for the callback. */
 type SignInStart<E> = (request: SignInRequest) => Promise<Result<{url: string; kept: E}, ApiError>>;
@@ -146,12 +150,12 @@ export function signInFlow<E, C>(args: SignInArgs<E, C>) {
 	}
 
 	/** Keeps the handshake, and what `start` keeps beside it, in a cookie on `res`, and answers the provider's sign-in page, for the browser to go to. */
-	function beginSignIn(res: Response, begin: {userId: string; returnTo: ReturnTo | undefined; start: SignInStart<E>}): Promise<Result<string, ApiError>> {
+	function beginSignIn(res: Response, begin: {userId: string; returnTo: ReturnTo | undefined; account: string | null; start: SignInStart<E>}): Promise<Result<string, ApiError>> {
 		return Do(async ($) => {
 			const appUrl = $(requirePresent(env.APP_URL, ApiErr.internalError(new Error('APP_URL is not configured'))));
 			const state = randomBytes(16).toString('hex');
 			const {verifier, challenge} = makePkce();
-			const {url, kept} = $(await begin.start({redirectUri: redirectUri(appUrl), state, challenge}));
+			const {url, kept} = $(await begin.start({redirectUri: redirectUri(appUrl), state, challenge, account: begin.account}));
 			const payload: StatePayload = {state, verifier, userId: begin.userId, ...(begin.returnTo ? {returnTo: begin.returnTo} : {}), kept};
 			const cookie = $(encryptSecret(JSON.stringify(payload)));
 			res.cookie(stateCookieName, cookie, {...stateCookieOptions(), maxAge: stateCookieMaxAgeMs});
@@ -225,7 +229,7 @@ export function signInRoutes<E, C>(args: SignInArgs<E, C> & {start: SignInStart<
 		}
 
 		const returnTo = returnToSchema.safeParse(queryParam(request, 'returnTo')).data;
-		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, start: args.start});
+		const begun = await flow.beginSignIn(res, {userId: request.user.userId, returnTo, account: queryParam(request, 'account'), start: args.start});
 		if (begun.isErr()) {
 			flow.redirectToConnectError(res, appUrl, returnTo, begun.error);
 			return;

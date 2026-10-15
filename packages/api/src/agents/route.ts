@@ -3,9 +3,10 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {deleteAgent, getAgent, listAgents, setAgentGrants, updateAgent} from '@proxy/db/agent';
-import {getConnection} from '@proxy/db/connection';
+import {getConnectionWithCredential} from '@proxy/db/connection';
 import {deleteOAuthGrant, listAgentOAuthGrants} from '@proxy/db/oauth';
 
+import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireUserOrgId} from '../utils/user-org';
@@ -92,7 +93,7 @@ export function handleDeleteAgentRoute(request: AuthenticatedRequest): Promise<R
 /**
  * Sets the agent's own settings for actions of a connection, such as `{actions: {send: false}}`;
  * `null` returns an action to the connection's default. An action the integration doesn't have is
- * refused.
+ * refused, and so is turning on one the connection's sign-in didn't cover.
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentResponse, ApiError>> {
 	return Do(async ($) => {
@@ -100,9 +101,10 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 		const agentId = agentIdOf(request);
 		const connectionId = request.params.connectionId ?? '';
 		$(await requireAgent(orgId, agentId));
-		const connection = $(requirePresent($(await getConnection(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
+		const connection = $(requirePresent($(await getConnectionWithCredential(orgId, connectionId)), ApiErr.notFound('connection', connectionId)));
 		const integration = $(requireIntegration(connection));
 		const actions = $(parseActionChanges(integration, z.boolean().nullable(), request.body));
+		$(refuseUnavailable(integration, unavailableActions(connection), actions));
 
 		$(await setAgentGrants({agentId, connectionId, actions}));
 		return $(await requireAgent(orgId, agentId));

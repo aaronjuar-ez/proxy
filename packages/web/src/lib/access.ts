@@ -45,7 +45,8 @@ export function ownSettings(agent: AgentLogin, connectionId: string): OwnSetting
 	);
 }
 
-// What the agent can do with the connection: its own settings, else the defaults.
+// What the agent can do with the connection: its own settings, else the defaults, never what the
+// connection's sign-in didn't cover.
 export function actionsFor(agent: AgentLogin, connection: Connection): string[] {
 	const integration = integrationOf(connection);
 	if (!integration) {
@@ -55,6 +56,7 @@ export function actionsFor(agent: AgentLogin, connection: Connection): string[] 
 		integration,
 		defaultActions(connection),
 		ownSettings(agent, connection.id),
+		connection.unavailable,
 	);
 }
 

@@ -74,12 +74,12 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		if (probe.kind === 'signIn') {
 			const server = $(await discoverMcpServer(url));
 			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), name: body.name});
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, returnTo: body.returnTo, start}))};
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {userId: request.user.userId, returnTo: body.returnTo, account: null, start}))};
 		}
 		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
 		const orgId = $(await requireUserOrgId(request));
 		const {row} = $(await saveConnection(orgId, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}));
-		return {kind: 'connected' as const, connection: toConnectionResponse(row)};
+		return {kind: 'connected' as const, connection: toConnectionResponse(row, [])};
 	});
 }
 
@@ -100,6 +100,6 @@ export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest):
 		const tools = $(await listCustomTools(row));
 		const stored = JSON.stringify(tools);
 		$(await updateConnectionTools({connectionId, tools: stored, actions: tools.map((tool) => tool.name)}));
-		return toConnectionResponse({...row, tools: stored});
+		return toConnectionResponse({...row, tools: stored}, []);
 	});
 }

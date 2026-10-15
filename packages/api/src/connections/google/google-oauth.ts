@@ -4,6 +4,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do, type FetchError, httpRequest, parseSchema, requirePresent} from '@proxy/utils';
 
 import type {GoogleClient} from '../../utils/google-oauth-client';
+import {decryptSecret} from '../../utils/secret-crypto';
 
 /**
  * Signing in to Google for a connection: OAuth 2.0 with PKCE against Google's own endpoints, with
@@ -15,6 +16,7 @@ import type {GoogleClient} from '../../utils/google-oauth-client';
 
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
 const TIMEOUT_MS = 15_000;
 
@@ -44,6 +46,17 @@ export const googleCredentialSchema = z.object({
 
 export type GoogleCredential = z.infer<typeof googleCredentialSchema>;
 
+/** A Google connection's stored credential, decrypted; one that won't decrypt or read is an internal error. */
+export function readGoogleCredential(stored: string | null): Result<GoogleCredential, ApiError> {
+	const unreadable = (cause: unknown): ApiError => ApiErr.internalError(cause);
+	return Do<GoogleCredential, ApiError>(($) => {
+		const present = $(requirePresent(stored, unreadable(new Error('Google connection without a credential'))));
+		const json = $(decryptSecret(present));
+		const parsed = $(Result.wrap((): unknown => JSON.parse(json)).mapErr(unreadable));
+		return $(parseSchema(googleCredentialSchema, parsed).mapErr(unreadable));
+	});
+}
+
 const tokensSchema = z.object({
 	access_token: z.string().min(1),
 	refresh_token: z.string().optional(),
@@ -62,8 +75,14 @@ const idTokenPayloadSchema = z.object({sub: z.string().min(1), email: z.string()
 /** Who a sign-in was for: Google's id for the account, and its address as it is now. */
 export type GoogleAccount = {id: string; email: string};
 
-/** Google's sign-in page for a connection, coming back to `redirectUri` with `state`. */
-export function googleAuthorizeUrl(client: GoogleClient, args: {redirectUri: string; state: string; challenge: string}): string {
+// The account a sign-in again is for, as Google takes it in `login_hint`.
+const loginHintSchema = z.email();
+
+/**
+ * Google's sign-in page for a connection, coming back to `redirectUri` with `state`. Signing in
+ * again from a connection names its `account`, so Google opens on it.
+ */
+export function googleAuthorizeUrl(client: GoogleClient, args: {redirectUri: string; state: string; challenge: string; account: string | null}): string {
 	const url = new URL(AUTHORIZE_URL);
 	url.searchParams.set('response_type', 'code');
 	url.searchParams.set('client_id', client.clientId);
@@ -76,6 +95,10 @@ export function googleAuthorizeUrl(client: GoogleClient, args: {redirectUri: str
 	url.searchParams.set('access_type', 'offline');
 	url.searchParams.set('prompt', 'consent');
 	url.searchParams.set('include_granted_scopes', 'true');
+	const hint = loginHintSchema.safeParse(args.account);
+	if (hint.success) {
+		url.searchParams.set('login_hint', hint.data);
+	}
 	return url.toString();
 }
 
@@ -167,4 +190,21 @@ export async function refreshGoogleTokens(client: GoogleClient, credential: Goog
 
 export function isExpiring(credential: GoogleCredential): boolean {
 	return credential.expiresAt !== null && Date.parse(credential.expiresAt) - EXPIRY_MARGIN_MS < Date.now();
+}
+
+/**
+ * Ends the connection's grant at Google, as disconnecting it does: revoking the refresh token
+ * revokes the access tokens made from it too.
+ */
+export async function revokeGoogleTokens(credential: GoogleCredential): Promise<Result<void, ApiError>> {
+	const revoked = await httpRequest(
+		REVOKE_URL,
+		{
+			method: 'POST',
+			headers: {'content-type': 'application/x-www-form-urlencoded'},
+			body: new URLSearchParams({token: credential.refreshToken ?? credential.accessToken}).toString(),
+		},
+		{parse: 'text', timeoutMs: TIMEOUT_MS},
+	);
+	return revoked.map(() => undefined).mapErr(tokenError);
 }

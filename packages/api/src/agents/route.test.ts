@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Err, Ok} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 
 const listAgents = mock();
 const getAgent = mock();
@@ -14,9 +14,14 @@ const isProviderConflict = mock(() => false);
 
 mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
 
-const getConnection = mock();
+const getConnectionWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({getConnection}));
+mock.module('@proxy/db/connection', () => ({getConnectionWithCredential}));
+
+// Readable stand-ins for encryption, so a test can write the credential it means.
+mock.module('../utils/secret-crypto', () => ({
+	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
+}));
 
 const requireUserOrgId = mock();
 
@@ -44,7 +49,9 @@ beforeEach(() => {
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
-	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: []}));
+	getConnectionWithCredential.mockResolvedValue(
+		Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'enc:{}'}),
+	);
 	isUsernameConflict.mockReturnValue(false);
 	isProviderConflict.mockReturnValue(false);
 });
@@ -179,8 +186,24 @@ describe('handleSetAgentGrantsRoute', () => {
 		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 
+	test("refuses turning on an action the connection's sign-in didn't cover, but not turning it off", async () => {
+		const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid'], email: 'alex@example.com'};
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), defaults: [], credential: `enc:${JSON.stringify(credential)}`}),
+		);
+
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const on = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {readFiles: true}}));
+		expect(on.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
+		expect(setAgentGrants).not.toHaveBeenCalled();
+
+		const off = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {readFiles: false}}));
+		expect(off.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {readFiles: false}});
+	});
+
 	test('refuses a connection outside the organization', async () => {
-		getConnection.mockResolvedValue(Ok(null));
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
 
 		const {handleSetAgentGrantsRoute} = await import('./route');
 		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));

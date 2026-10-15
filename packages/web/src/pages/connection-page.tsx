@@ -10,7 +10,7 @@ import {
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
 import {BackButton} from '@/components/back-button';
-import {ConnectionAccess} from '@/components/connection-access';
+import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
@@ -26,6 +26,7 @@ import {
 	ownSettings,
 	describeActions,
 } from '@/lib/access';
+import {signInPath} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
@@ -48,6 +49,10 @@ export function ConnectionPage() {
 	}
 
 	const withAccess = agentsWithAccess(agents, connection);
+	const signInAgain =
+		connection.unavailable.length > 0
+			? signInPath(connection.integrationId, {account: connection.account})
+			: null;
 
 	return (
 		<AppShell
@@ -112,12 +117,16 @@ export function ConnectionPage() {
 							: undefined
 					}
 				>
+					{integration.disclosure && (
+						<p className="text-sm text-muted-foreground md:px-3">{integration.disclosure}</p>
+					)}
 					{integration.custom && integration.actions.length === 0 && (
 						<p className="text-sm text-muted-foreground md:px-3">The server lists no tools.</p>
 					)}
 					<ConnectionAccess
 						actions={integration.actions}
 						defaults={defaultActions(connection)}
+						unavailable={connection.unavailable}
 						differing={differingAgents(agents, connection.id)}
 						onChange={async (actions) => {
 							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
@@ -125,6 +134,7 @@ export function ConnectionPage() {
 							await revalidator.revalidate();
 						}}
 					/>
+					{signInAgain && <SignInAgain href={signInAgain} className="md:px-3" />}
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">

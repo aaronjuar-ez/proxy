@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Err, Ok} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 import {findIntegration, integrationFor, type Integration} from '@proxy/integrations';
 
 const getAgent = mock();
@@ -12,10 +12,15 @@ const logAgentRequest = mock();
 
 mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
-const listConnections = mock();
-const updateConnectionCredential = mock();
+const listConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, updateConnectionCredential}));
+mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+
+// Readable stand-ins for encryption, so a test can write the credential it means.
+mock.module('../utils/secret-crypto', () => ({
+	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
+	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
+}));
 
 const loadConnection = mock();
 
@@ -49,6 +54,16 @@ const notionConnection = {
 	credential: 'v1.x.y.z',
 };
 
+// Read files is on by default, but the person unticked Drive on Google's consent screen.
+const googleConnection = {
+	id: 'google-1',
+	integrationId: 'google',
+	account: 'alex@example.com',
+	createdAt: new Date(),
+	defaults: [{actionId: 'readFiles'}],
+	credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'], email: 'alex@example.com'})}`,
+};
+
 // Reads cards of its own, and doesn't read the mailbox.
 const agent = {
 	id: 'agent-1',
@@ -75,7 +90,7 @@ const send = mock();
 const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
-function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection) {
+function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
@@ -83,7 +98,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
-	listConnections.mockResolvedValue(Ok([infoConnection, emailConnection]));
+	listConnectionsWithCredential.mockResolvedValue(Ok([infoConnection, emailConnection, googleConnection]));
 	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(card));
 	useConnection(infoConnection);
@@ -98,6 +113,47 @@ describe('listAgentConnections', () => {
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
 			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards'], tools: null, name: null}],
 		});
+	});
+});
+
+describe("actions the connection's sign-in didn't cover", () => {
+	test('are not among what the agent can do, whatever is ticked', async () => {
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
+
+		const {listAgentConnections} = await import('./tools');
+		const result = await listAgentConnections(signedIn);
+
+		expect(result.unwrap().connections.map((connection) => connection.id)).toEqual(['info-1', 'mail-1']);
+	});
+
+	test('offer no tools', async () => {
+		useConnection(googleConnection);
+
+		const {listAgentTools} = await import('./tools');
+		const result = await listAgentTools(signedIn, 'google-1');
+
+		expect(result.unwrap()).toEqual([]);
+	});
+
+	test('running one is refused, saying how to allow it, and logged as denied', async () => {
+		useConnection(googleConnection);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'files_list', {search: 'budget'});
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
+		expect(connector.list).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({connectionId: 'google-1', collectionId: 'files', action: 'list', query: 'budget', outcome: 'denied'});
+	});
+
+	test("one the agent's own setting turns off anyway is plainly forbidden", async () => {
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
+		useConnection(googleConnection);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'files_list', {});
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
 	});
 });
 
@@ -351,7 +407,7 @@ describe('custom MCP servers', () => {
 
 	beforeEach(() => {
 		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
-		listConnections.mockResolvedValue(Ok([customConnection]));
+		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
 		callCustomTool.mockResolvedValue(Ok('3 results'));
 	});
 

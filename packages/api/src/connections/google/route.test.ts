@@ -143,6 +143,20 @@ describe('handleStartGoogleRoute', () => {
 		expect(google.requests).toEqual([]);
 	});
 
+	test('signing in again from a connection opens Google on its account', async () => {
+		const {authorizeUrl} = await start({account: 'alex@example.com'});
+
+		expect(authorizeUrl?.searchParams.get('login_hint')).toBe('alex@example.com');
+	});
+
+	test('an account that is not an address is not passed on', async () => {
+		const {authorizeUrl} = await start({account: 'not an address'});
+		const {authorizeUrl: none} = await start();
+
+		expect(authorizeUrl?.searchParams.has('login_hint')).toBe(false);
+		expect(none?.searchParams.has('login_hint')).toBe(false);
+	});
+
 	test('without a Google client set up, goes back to the catalog with the error', async () => {
 		env.GOOGLE_CLIENT_ID = undefined;
 		const {res, cookie} = await start();

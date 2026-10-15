@@ -89,6 +89,9 @@ export type Integration = {
 	// Everything an agent can be allowed with a connection of it, in the order it is shown.
 	actions: Action[];
 	collections: Collection[];
+	// Shown above a connection's permissions: what ticking them hands the person's agents, where a
+	// provider's policy asks for it to be said.
+	disclosure?: string;
 	// Information lives in Personal Agent Proxy itself: it is always there and never connected or
 	// disconnected.
 	builtIn?: boolean;

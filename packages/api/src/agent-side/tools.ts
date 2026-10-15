@@ -3,7 +3,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgent, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listConnections, type ConnectionRow} from '@proxy/db/connection';
+import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import {
 	allowedTools,
 	applies,
@@ -22,6 +22,7 @@ import {
 } from '@proxy/integrations';
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
+import {unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
@@ -53,12 +54,14 @@ export type ToolResult = RecordPage | {record: DataRecord | null} | {text: strin
 // How much of a custom tool's params the activity log keeps.
 const MAX_LOGGED_PARAMS = 200;
 
-export function actionsOf(agent: AgentRow, connection: ConnectionRow, integration: Integration): string[] {
+/** What the agent can do with the connection, none of the `unavailable` actions its sign-in didn't cover among them. */
+export function actionsOf(agent: AgentRow, connection: ConnectionRow, integration: Integration, unavailable: string[]): string[] {
 	const own: OwnSettings = Object.fromEntries(agent.grants.filter((grant) => grant.connectionId === connection.id).map((grant) => [grant.actionId, grant.allowed]));
 	return effectiveActions(
 		integration,
 		connection.defaults.map((stored) => stored.actionId),
 		own,
+		unavailable,
 	);
 }
 
@@ -73,13 +76,13 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		const connections = $(await listConnections(signedIn.orgId))
+		const connections = $(await listConnectionsWithCredential(signedIn.orgId))
 			.flatMap((connection) => {
 				const integration = integrationOf(connection);
 				if (!integration) {
 					return [];
 				}
-				const actions = actionsOf(agent, connection, integration);
+				const actions = actionsOf(agent, connection, integration, unavailableActions(connection));
 				return [
 					{
 						id: connection.id,
@@ -101,7 +104,7 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		const {connection, integration} = $(await loadConnection(signedIn.orgId, connectionId));
-		return allowedTools(integration, actionsOf(agent, connection, integration));
+		return allowedTools(integration, actionsOf(agent, connection, integration, unavailableActions(connection)));
 	});
 }
 
@@ -132,7 +135,8 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 /**
  * Runs one of the connection's tools with `params`, as its input schema describes them. A
  * connection outside the organization, or a tool its integration doesn't have, is not found and
- * not logged; a tool whose action the agent doesn't have is refused and logged as denied.
+ * not logged; a tool whose action the agent doesn't have is refused and logged as denied, saying
+ * how to allow it where the connection's sign-in didn't cover the action.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
@@ -153,12 +157,23 @@ export function runAgentTool(caller: AgentCaller, connectionId: string, toolName
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;
-		if (!actionsOf(agent, connection, integration).includes(tool.action)) {
+		const unavailable = unavailableActions(connection);
+		if (!actionsOf(agent, connection, integration, unavailable).includes(tool.action)) {
 			$(await log(run, 'denied', null, searchOf(listParams)));
-			return $(Err(ApiErr.forbidden()));
+			return $(Err(refusal(integration, agent, connection, unavailable, tool.action)));
 		}
 		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
 	});
+}
+
+// Why an action is refused: the sign-in, naming the action it didn't cover, where signing in again
+// would allow it as the agent's settings stand; else plainly forbidden.
+function refusal(integration: Integration, agent: AgentRow, connection: ConnectionRow, unavailable: string[], actionId: string): ApiError {
+	if (!actionsOf(agent, connection, integration, []).includes(actionId)) {
+		return ApiErr.forbidden();
+	}
+	const required = integration.actions.find((action) => action.id === actionId)?.requires;
+	return unavailableError(integration, unavailable.includes(actionId) || required === undefined ? actionId : required);
 }
 
 function searchOf(params: Record<string, string> | null): string | null {
@@ -206,7 +221,7 @@ function runServerTool(
 				outcome,
 				via: caller.via,
 			});
-		if (!actionsOf(agent, connection, integration).includes(tool.action)) {
+		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
 			$(await logRun('denied'));
 			return $(Err(ApiErr.forbidden()));
 		}

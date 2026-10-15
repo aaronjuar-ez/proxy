@@ -519,6 +519,9 @@ const google: Integration = {
 	id: 'google',
 	name: 'Google',
 	description: 'Gmail, Drive, Docs, Sheets and Slides for one Google account',
+	// Google's Limited Use policy asks for what happens with its data to be said where access is given.
+	disclosure:
+		'What is ticked here is what your agents can read and do with this Google account through Personal Agent Proxy, each time you ask them to. Personal Agent Proxy keeps only the sign-in and the activity log; nothing from Google is used to train a model.',
 	actions: [
 		{
 			id: 'readFiles',

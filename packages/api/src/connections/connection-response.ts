@@ -16,9 +16,12 @@ export type ConnectionResponse = {
 	// What the person called the connection, where they named it; null for every other integration,
 	// which is called by its integration.
 	name: string | null;
+	// The actions the connection's sign-in didn't cover, in the catalog's order: no agent gets them
+	// until the person signs in again and allows them.
+	unavailable: string[];
 };
 
-export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
+export function toConnectionResponse(row: ConnectionRow, unavailable: string[]): ConnectionResponse {
 	const integration = integrationOf(row);
 	const actions = integration?.actions ?? [];
 	return {
@@ -28,5 +31,6 @@ export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
 		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
 		tools: integration?.mcpTools ?? null,
 		name: row.name,
+		unavailable,
 	};
 }

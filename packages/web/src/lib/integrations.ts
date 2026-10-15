@@ -49,6 +49,29 @@ export function integrationOf(connection: {
 	return {...integration, logo: LOGOS[integration.id]};
 }
 
+// The integrations connected by signing in to them. Their sign-in starts at
+// `/api/connections/<id>/start`: the api sends the browser on to the service, and back to the new
+// connection, or to the catalog with `?error=<id>` when it didn't finish. Started with
+// `?returnTo=welcome`, it comes back to the welcome flow's page for the connection, or its catalog;
+// with `?account=`, as signing in again from a connection does, the service opens on that account
+// where it can.
+const SIGN_IN: IntegrationId[] = ['google', 'granola', 'notion', 'linear'];
+
+/** Where signing in to an integration starts, or null for one connected on a form of its own. */
+export function signInPath(
+	integrationId: string,
+	query: {returnTo?: 'welcome'; account?: string} = {},
+): string | null {
+	if (!SIGN_IN.some((id) => id === integrationId)) {
+		return null;
+	}
+	const params = new URLSearchParams(
+		Object.entries(query).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])),
+	);
+	const search = params.size > 0 ? `?${params.toString()}` : '';
+	return `/api/connections/${integrationId}/start${search}`;
+}
+
 /** What the catalog says when a sign-in came back with `?error=<integration>`. */
 export function signInFailedMessage(integrationId: string | null): string | null {
 	const failed = findIntegration(integrationId ?? '');

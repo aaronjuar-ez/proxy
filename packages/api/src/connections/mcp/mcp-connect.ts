@@ -18,10 +18,10 @@ import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpServer, typ
  * Registers with the server for this sign-in, and its sign-in page, keeping the client for the
  * callback beside `kept`.
  */
-export function startMcpSignIn<K extends object>(server: McpServer, request: SignInRequest, kept: K): Promise<Result<{url: string; kept: K & {clientId: string}}, ApiError>> {
+export function startMcpSignIn<K extends object>(server: McpServer, {redirectUri, state, challenge}: SignInRequest, kept: K): Promise<Result<{url: string; kept: K & {clientId: string}}, ApiError>> {
 	return Do(async ($) => {
-		const clientId = $(await registerMcpClient(server, request.redirectUri));
-		return {url: mcpAuthorizeUrl(server, {clientId, ...request}), kept: {...kept, clientId}};
+		const clientId = $(await registerMcpClient(server, redirectUri));
+		return {url: mcpAuthorizeUrl(server, {clientId, redirectUri, state, challenge}), kept: {...kept, clientId}};
 	});
 }
 

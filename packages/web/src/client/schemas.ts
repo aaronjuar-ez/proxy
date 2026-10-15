@@ -13,6 +13,8 @@ export const connectionSchema = z.object({
 	tools: z.array(mcpToolSchema).nullable(),
 	// What the person called the connection, where they named it; null for every other integration.
 	name: z.string().nullable(),
+	// The actions the connection's sign-in didn't cover: no agent gets them until it is signed in again.
+	unavailable: z.array(z.string()),
 });
 
 export const agentSchema = z.object({

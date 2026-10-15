@@ -1,25 +1,49 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Err, Ok} from 'ts-results-es';
+import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 
-const listConnections = mock();
-const getConnection = mock();
+const listConnectionsWithCredential = mock();
+const getConnectionWithCredential = mock();
 const deleteConnection = mock();
 const setConnectionDefaults = mock();
 const updateConnectionName = mock();
+const countSameAccountConnections = mock();
 
 mock.module('@proxy/db/connection', () => ({
-	listConnections,
-	getConnection,
+	listConnectionsWithCredential,
+	getConnectionWithCredential,
 	deleteConnection,
 	setConnectionDefaults,
 	updateConnectionName,
+	countSameAccountConnections,
 }));
 
 const getUserOrgId = mock();
 
 mock.module('@proxy/db/organization', () => ({getUserOrgId}));
+
+const warn = mock();
+
+mock.module('../observability/log', () => ({
+	log: {debug: mock(), info: mock(), warn, error: mock()},
+	serializeError: mock(() => ({})),
+}));
+
+// Readable stand-ins for encryption, so a test can write the credential it means.
+mock.module('../utils/secret-crypto', () => ({
+	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
+	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
+}));
+
+// Google's revoke endpoint: each request, and its answer.
+const google = {requests: [] as Array<{url: string; body: URLSearchParams}>, status: 200};
+
+spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
+	const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+	google.requests.push({url, body: new URLSearchParams(typeof init?.body === 'string' ? init.body : '')});
+	return new Response(google.status === 200 ? '{}' : '{"error":"invalid_token"}', {status: google.status});
+}) as typeof fetch);
 
 const emailRow = {
 	id: 'conn-1',
@@ -29,7 +53,16 @@ const emailRow = {
 	tools: null,
 	name: null,
 	defaults: [{actionId: 'read'}],
+	credential: 'enc:{}',
 };
+
+function googleRow(scopes: string[]) {
+	const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes, email: 'alex@example.com'};
+	return {...emailRow, id: 'conn-2', integrationId: 'google', defaults: [], credential: `enc:${JSON.stringify(credential)}`};
+}
+
+// The person unticked Drive on Google's consent screen.
+const withoutDrive = googleRow(['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/gmail.modify']);
 
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
 	return {
@@ -41,9 +74,12 @@ function makeRequest(params: Record<string, string> = {}, body: unknown = undefi
 
 beforeEach(() => {
 	mock.clearAllMocks();
+	google.requests = [];
+	google.status = 200;
+	countSameAccountConnections.mockResolvedValue(Ok(1));
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
-	listConnections.mockResolvedValue(Ok([emailRow]));
-	getConnection.mockResolvedValue(Ok(emailRow));
+	listConnectionsWithCredential.mockResolvedValue(Ok([emailRow]));
+	getConnectionWithCredential.mockResolvedValue(Ok(emailRow));
 	deleteConnection.mockResolvedValue(Ok(true));
 	setConnectionDefaults.mockResolvedValue(Ok(undefined));
 });
@@ -53,10 +89,31 @@ describe('handleListConnectionsRoute', () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const result = await handleListConnectionsRoute(makeRequest());
 
-		expect(listConnections).toHaveBeenCalledWith('org-1');
+		expect(listConnectionsWithCredential).toHaveBeenCalledWith('org-1');
 		const [connection] = result.unwrap().connections;
 		expect(connection).toMatchObject({id: 'conn-1', integrationId: 'email', account: 'alex@example.com'});
 		expect(connection?.defaults).toEqual(['read']);
+		expect(connection?.unavailable).toEqual([]);
+	});
+
+	test("a Google credential that can't be read leaves the rest listed, itself with no action available", async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([emailRow, {...googleRow([]), credential: 'v1.other-key'}]));
+		const {handleListConnectionsRoute} = await import('./route');
+		const {connections} = (await handleListConnectionsRoute(makeRequest())).unwrap();
+
+		expect(connections.map((connection) => [connection.id, connection.unavailable])).toEqual([
+			['conn-1', []],
+			['conn-2', ['readFiles']],
+		]);
+	});
+
+	test("says which actions a Google connection's sign-in didn't cover, never the credential", async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([emailRow, withoutDrive]));
+
+		const {handleListConnectionsRoute} = await import('./route');
+		const [, connection] = (await handleListConnectionsRoute(makeRequest())).unwrap().connections;
+
+		expect(connection).toEqual({id: 'conn-2', integrationId: 'google', account: 'alex@example.com', defaults: [], tools: null, name: null, unavailable: ['readFiles']});
 	});
 
 	test('a user without an organization is signed out', async () => {
@@ -74,12 +131,12 @@ describe('handleGetConnectionRoute', () => {
 		const {handleGetConnectionRoute} = await import('./route');
 		const result = await handleGetConnectionRoute(makeRequest({connectionId: 'conn-1'}));
 
-		expect(getConnection).toHaveBeenCalledWith('org-1', 'conn-1');
+		expect(getConnectionWithCredential).toHaveBeenCalledWith('org-1', 'conn-1');
 		expect(result.unwrap().id).toBe('conn-1');
 	});
 
 	test('an unknown connection is not found', async () => {
-		getConnection.mockResolvedValue(Ok(null));
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
 
 		const {handleGetConnectionRoute} = await import('./route');
 		const result = await handleGetConnectionRoute(makeRequest({connectionId: 'other'}));
@@ -103,11 +160,11 @@ describe('handleRenameConnectionRoute', () => {
 
 	test('a custom MCP server needs a name, and Information keeps its own', async () => {
 		updateConnectionName.mockResolvedValue(Ok(undefined));
-		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'mcp', tools: '[]', name: 'Docs'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'mcp', tools: '[]', name: 'Docs'}));
 		const {handleRenameConnectionRoute} = await import('./route');
 		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: ' '}))).unwrapErr().kind).toBe('validation_error');
 
-		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
 		expect((await handleRenameConnectionRoute(makeRequest({connectionId: 'conn-1'}, {name: 'Mine'}))).unwrapErr().kind).toBe('forbidden');
 		expect(updateConnectionName).not.toHaveBeenCalled();
 	});
@@ -122,8 +179,51 @@ describe('handleDeleteConnectionRoute', () => {
 		expect(result.isOk()).toBe(true);
 	});
 
+	test('revokes a Google connection at Google first, its refresh token ending the whole grant', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
+
+		const {handleDeleteConnectionRoute} = await import('./route');
+		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-2'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(google.requests.map(({url, body}) => [url, body.get('token')])).toEqual([['https://oauth2.googleapis.com/revoke', 'refresh-1']]);
+		expect(deleteConnection).toHaveBeenCalledWith('org-1', 'conn-2');
+	});
+
+	test('keeps the grant at Google while another connection, in any organization, is for the same account', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
+		countSameAccountConnections.mockResolvedValue(Ok(2));
+
+		const {handleDeleteConnectionRoute} = await import('./route');
+		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-2'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(countSameAccountConnections).toHaveBeenCalledWith('conn-2');
+		expect(google.requests).toEqual([]);
+		expect(deleteConnection).toHaveBeenCalledWith('org-1', 'conn-2');
+	});
+
+	test('deletes a Google connection even when Google turns the revoke down', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
+		google.status = 400;
+
+		const {handleDeleteConnectionRoute} = await import('./route');
+		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-2'}));
+
+		expect(result.isOk()).toBe(true);
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(deleteConnection).toHaveBeenCalledWith('org-1', 'conn-2');
+	});
+
+	test('asks nothing of the provider for any other connection', async () => {
+		const {handleDeleteConnectionRoute} = await import('./route');
+		await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
+
+		expect(google.requests).toEqual([]);
+	});
+
 	test('Information is built in and stays', async () => {
-		getConnection.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
+		getConnectionWithCredential.mockResolvedValue(Ok({...emailRow, integrationId: 'info'}));
 
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'conn-1'}));
@@ -133,7 +233,7 @@ describe('handleDeleteConnectionRoute', () => {
 	});
 
 	test('an unknown connection is not found', async () => {
-		getConnection.mockResolvedValue(Ok(null));
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
 
 		const {handleDeleteConnectionRoute} = await import('./route');
 		const result = await handleDeleteConnectionRoute(makeRequest({connectionId: 'other'}));
@@ -157,6 +257,26 @@ describe('handleSetConnectionDefaultsRoute', () => {
 
 		expect(result.unwrapErr().kind).toBe('validation_error');
 		expect(setConnectionDefaults).not.toHaveBeenCalled();
+	});
+
+	test("refuses turning on an action the sign-in didn't cover, saying how to allow it", async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
+
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-2'}, {actions: {readFiles: true}}));
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
+		expect(setConnectionDefaults).not.toHaveBeenCalled();
+	});
+
+	test("turns off an action the sign-in didn't cover", async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok(withoutDrive));
+
+		const {handleSetConnectionDefaultsRoute} = await import('./route');
+		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-2'}, {actions: {readFiles: false}}));
+
+		expect(result.unwrap().unavailable).toEqual(['readFiles']);
+		expect(setConnectionDefaults).toHaveBeenCalledWith({connectionId: 'conn-2', actions: {readFiles: false}});
 	});
 
 	test('refuses a setting that is not on or off', async () => {

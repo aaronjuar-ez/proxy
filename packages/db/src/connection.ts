@@ -17,7 +17,8 @@ export type ConnectionRow = {
 	defaults: Array<{actionId: string}>;
 };
 
-// Never the credential: only `getConnectionWithCredential` and `getConnectionCredential` read it.
+// Never the credential: only `getConnectionWithCredential`, `listConnectionsWithCredential` and
+// `getConnectionCredential` read it.
 const connectionSelect = {
 	id: true,
 	integrationId: true,
@@ -33,6 +34,22 @@ export async function listConnections(orgId: string): Promise<Result<ConnectionR
 		db.connection.findMany({
 			where: {orgId},
 			select: connectionSelect,
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/**
+ * The organization's connections with their encrypted credentials, for what a sign-in covered,
+ * which the api reads from them.
+ */
+export async function listConnectionsWithCredential(
+	orgId: string,
+): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findMany({
+			where: {orgId},
+			select: {...connectionSelect, credential: true},
 			orderBy: {createdAt: 'asc'},
 		}),
 	);
@@ -188,6 +205,28 @@ export async function updateConnectionName(data: {
 	const {connectionId, name} = data;
 	return wrapDb(async () => {
 		await db.connection.update({where: {id: connectionId}, data: {name}});
+	});
+}
+
+/**
+ * How many connections, in every organization, are for the same account as this one, itself
+ * included: those with the provider's id for it, or with its address, as one connected before ids
+ * were kept is known by. Zero once the connection is gone.
+ */
+export async function countSameAccountConnections(
+	connectionId: string,
+): Promise<Result<number, ApiError>> {
+	return wrapDb(async () => {
+		const connection = await db.connection.findUnique({
+			where: {id: connectionId},
+			select: {integrationId: true, account: true, providerAccountId: true},
+		});
+		if (!connection) {
+			return 0;
+		}
+		const {integrationId, account, providerAccountId} = connection;
+		const same = providerAccountId === null ? [{account}] : [{providerAccountId}, {account}];
+		return db.connection.count({where: {integrationId, OR: same}});
 	});
 }
 

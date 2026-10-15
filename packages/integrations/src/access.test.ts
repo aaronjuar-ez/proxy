@@ -62,6 +62,12 @@ describe('effectiveActions', () => {
 	test('an action the catalog no longer has is dropped', () => {
 		expect(effectiveActions(email, ['read', 'gone'])).toEqual(['read']);
 	});
+
+	test("an action the sign-in didn't cover is off whatever is ticked, and so are those requiring it", () => {
+		expect(effectiveActions(email, ['read', 'archive'], {}, ['read'])).toEqual([]);
+		expect(effectiveActions(email, ['send'], {send: true}, ['send'])).toEqual([]);
+		expect(effectiveActions(email, ['read', 'send'], {}, ['send'])).toEqual(['read']);
+	});
 });
 
 describe('requiredAction', () => {
