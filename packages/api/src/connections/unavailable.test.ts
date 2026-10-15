@@ -44,6 +44,14 @@ describe('unavailableActions', () => {
 		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/drive'))))).toEqual(['readFiles']);
 	});
 
+	test('a Google sign-in with only gmail.send leaves every Gmail action but Send out', async () => {
+		const {unavailableActions} = await import('./unavailable');
+
+		const withoutModify = ALL_SCOPES.filter((scope) => !scope.endsWith('/gmail.modify'));
+		expect(unavailableActions(google(withoutModify))).toEqual(['readEmails', 'markEmails', 'flagEmails', 'archiveEmails', 'writeEmails', 'trashEmails']);
+		expect(unavailableActions(google(withoutModify.filter((scope) => !scope.endsWith('/gmail.send'))))).toContain('sendEmails');
+	});
+
 	test('every other integration covers all its actions, whatever its credential', async () => {
 		const {unavailableActions} = await import('./unavailable');
 

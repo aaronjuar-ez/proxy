@@ -10,9 +10,20 @@ import type {GoogleCredential} from './google-oauth';
 
 const scope = (name: string): string => `https://www.googleapis.com/auth/${name}`;
 
+// Gmail's reading, labelling, Trash and drafts all take `gmail.modify`; sending takes it too, or
+// `gmail.send` alone.
+const GMAIL = [scope('gmail.modify')];
+
 // Any one of an action's scopes is enough. Drive's export and the Docs and Sheets APIs all take
 // `drive`, so it alone covers reading files.
 const ACTION_SCOPES: Partial<Record<string, string[]>> = {
+	readEmails: GMAIL,
+	markEmails: GMAIL,
+	flagEmails: GMAIL,
+	archiveEmails: GMAIL,
+	writeEmails: GMAIL,
+	trashEmails: GMAIL,
+	sendEmails: [scope('gmail.send'), scope('gmail.modify')],
 	readFiles: [scope('drive')],
 };
 

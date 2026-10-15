@@ -84,6 +84,15 @@ describe('googleError', () => {
 		});
 	});
 
+	test('a token without the scope a call takes says to sign in again', async () => {
+		const {googleError} = await import('./google-client');
+
+		expect(googleError(httpError(403, {code: 403, message: 'Request had insufficient authentication scopes.', errors: [{reason: 'insufficientPermissions'}]}))).toMatchObject({
+			kind: 'validation_error',
+			message: "Google didn't allow this at sign-in. Sign in to Google again to allow it.",
+		});
+	});
+
 	test("any other refusal is passed on in Google's words", async () => {
 		const {googleError} = await import('./google-client');
 

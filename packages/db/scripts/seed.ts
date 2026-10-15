@@ -204,8 +204,8 @@ const tracker = await connect({
 	defaults: ['read', 'create'],
 });
 
-// Made-up tokens, like Linear's: opening a file fails.
-const drive = await connect({
+// Made-up tokens, like Linear's: opening a file or an email fails.
+const googleAccount = await connect({
 	integrationId: 'google',
 	account: 'demo.user@gmail.com',
 	credential: encrypt(
@@ -239,7 +239,7 @@ const connections: [Connection, ...Connection[]] = [
 	meetings,
 	wiki,
 	tracker,
-	drive,
+	googleAccount,
 ];
 
 // ---- Information records --------------------------------------------------------------------
@@ -386,6 +386,7 @@ const agents = [
 		grants: [
 			grant(personal, {trash: true, write: false}),
 			grant(work, {mark: true, flag: true, archive: true}),
+			grant(googleAccount, {readEmails: true, markEmails: true, archiveEmails: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
 			grant(meetings, {readTranscripts: false}),
 			grant(wiki, {read: false}),
@@ -413,7 +414,7 @@ function requestsOf(collection: Collection): [string, ...string[]] {
 	];
 }
 
-// Titles for the mailboxes' emails; Information's come from the records seeded above.
+// Titles for the mailboxes' emails, and Gmail's; Information's come from the records seeded above.
 const EMAIL_TITLES: [string, ...string[]] = [
 	'Your order has shipped',
 	'Q3 planning — agenda',
@@ -473,7 +474,7 @@ const SEARCHES: [string, ...string[]] = [
 ];
 
 function recordTitle(connection: Connection, collectionId: string): string {
-	if (connection.integrationId === 'email') {
+	if (connection.integrationId === 'email' || collectionId === 'emails') {
 		return pick(EMAIL_TITLES);
 	}
 

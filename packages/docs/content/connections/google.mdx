@@ -1,11 +1,12 @@
 ---
 title: Google
-description: Connect a Google account for agents to read Drive, Docs, Sheets and Slides.
+description: Connect a Google account for agents to work with Gmail and read Drive, Docs, Sheets and Slides.
 ---
 
-Agents work with the files the Google account can open, as the person who signs in. Every request
-goes to Google live; nothing is copied. One sign-in covers Gmail, Drive, Docs, Sheets and Slides,
-and one connection holds them all. Today agents can read files; Gmail and writing come later.
+Agents work with the account's email and the files it can open, as the person who signs in. Every
+request goes to Google live; nothing is copied. One sign-in covers Gmail, Drive, Docs, Sheets and
+Slides, and one connection holds them all. Gmail needs no app password, so it works for accounts
+that can't make one. Today agents can read files; writing them comes later.
 
 ## Before you start: a Google Cloud OAuth client
 
@@ -90,7 +91,10 @@ See [Environment variables](/self-hosting/environment).
 
 Cloud projects made since May 2026 have Google's
 [standard quotas](https://developers.google.com/workspace/tools-safety), far above what a few
-people use.
+people use, except Gmail's: each account gets 6,000 units a minute, and a page of 50 emails costs
+about 1,000 of them, since each email in it is asked for on its own. An agent paging through more
+than a few lists a minute is told the provider could not be reached, and can try again a minute
+later.
 
 ## Connect Google
 
@@ -110,14 +114,34 @@ allowed at sign-in", until the person signs in again from the connection's page.
 
 ### Review the defaults
 
-What agents are allowed starts with Read files. Turn it off for every agent on the connection's
-page, or only for one agent on the agent's page. A line above the permissions says what that means
+What agents are allowed starts with Read files alone, as a new mailbox gives agents no access to
+its email. Turn actions on or off for every agent on the connection's page, or only for one agent
+on the agent's page. A line above the permissions says what that means
 for the account: what is ticked is what agents can read and do with it, and nothing from Google is
 used to train a model.
 
 </Steps>
 
 ## What agents can do
+
+Agents see Gmail as one list, the newest first, 50 to a page: all mail but Spam and Trash, as
+Gmail's All Mail is, or one folder of it, the inbox, drafts, sent mail, the archive, Trash or Spam.
+A search is Gmail's own, as in its search box, such as `from:sam has:attachment newer_than:7d`. You
+can allow each action separately:
+
+- **Read email** lists, opens and searches email. An email opens as its text, or its HTML as text
+  where it has none, with the names of its attachments.
+- **Mark read or unread**, **Star**, **Archive** and **Move email to Trash** act on messages in
+  the inbox, and require Read email. Archived email stays in All Mail, and Gmail keeps Trash 30
+  days before deleting it; nothing is deleted for good.
+- **Write drafts** creates, edits and deletes drafts, and requires Read email. An edit keeps the
+  draft's Cc, Bcc and thread, and its formatting while its text is unchanged; text written anew
+  goes out as plain text. A draft with attachments isn't edited, since it would lose them.
+  Received messages are never edited or deleted.
+- **Send** sends a new email or a saved draft from the account's own address, and Gmail files it
+  in Sent. It does not require Read email, so an agent can send without seeing the mailbox.
+
+For Drive, Docs, Sheets and Slides:
 
 - **Read files** browses and searches Drive and opens files. At the top are four places: My Drive,
   Shared with me, Shared drives and Recent. My Drive, folders and shared drives list their files
@@ -129,8 +153,8 @@ used to train a model.
   values as `Header: value` lines, the headers from the tab's first row. Other files, shortcuts
   included, open as their name, kind, owner, last change and link.
 
-Gmail, and creating and editing files, are coming. The sign-in already asks for them, so no new
-sign-in will be needed.
+Creating and editing files is coming. The sign-in already asks for it, so no new sign-in will be
+needed.
 
 ## Troubleshooting
 

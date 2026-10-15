@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
+import {findIntegration} from '@proxy/integrations';
 
 const listConnectionsWithCredential = mock();
 const getConnectionWithCredential = mock();
@@ -101,9 +102,10 @@ describe('handleListConnectionsRoute', () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const {connections} = (await handleListConnectionsRoute(makeRequest())).unwrap();
 
+		const every = findIntegration('google')?.actions.map((action) => action.id);
 		expect(connections.map((connection) => [connection.id, connection.unavailable])).toEqual([
 			['conn-1', []],
-			['conn-2', ['readFiles']],
+			['conn-2', every ?? []],
 		]);
 	});
 

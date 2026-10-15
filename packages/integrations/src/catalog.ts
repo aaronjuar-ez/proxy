@@ -4,6 +4,149 @@ const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 
 export const INFO_INTEGRATION_ID = 'info';
 
+// The actions an email collection's reads, writes and commands need, by what they do.
+type EmailActions = {
+	read: string;
+	mark: string;
+	flag: string;
+	archive: string;
+	write: string;
+	trash: string;
+	send: string;
+};
+
+// What flagging is called: Flag on any mailbox, Star on Gmail.
+type FlagWords = {flag: string; unflag: string; flagged: string; unflagged: string};
+
+const FLAG: FlagWords = {
+	flag: 'Flag',
+	unflag: 'Unflag',
+	flagged: 'Flagged',
+	unflagged: 'Unflagged',
+};
+const STAR: FlagWords = {
+	flag: 'Star',
+	unflag: 'Unstar',
+	flagged: 'Starred',
+	unflagged: 'Unstarred',
+};
+
+/**
+ * A mailbox's email as one collection, the same for any mailbox and for Gmail, so agents see one
+ * kind of email: the same fields and commands, under each integration's own action ids. Drafts
+ * are the only email edited or deleted; commands act on email in the inbox.
+ */
+function emailsCollection(args: {
+	actions: EmailActions;
+	folders: string[];
+	searchHint: string;
+	flag: FlagWords;
+}): Collection {
+	const {actions, flag} = args;
+	return {
+		id: 'emails',
+		name: 'Email',
+		singular: 'email',
+		titleField: 'subject',
+		summaryField: 'from',
+		filterField: 'folder',
+		searchHint: args.searchHint,
+		read: actions.read,
+		createLabel: 'Save as draft',
+		writes: {create: actions.write, update: actions.write, delete: actions.write},
+		editable: {field: 'folder', values: ['Draft']},
+		commands: [
+			{
+				id: 'markRead',
+				on: 'record',
+				label: 'Mark as read',
+				action: actions.mark,
+				where: INBOX,
+				done: 'Marked {} as read',
+				tried: 'mark {} as read',
+			},
+			{
+				id: 'markUnread',
+				on: 'record',
+				label: 'Mark as unread',
+				action: actions.mark,
+				where: INBOX,
+				done: 'Marked {} as unread',
+				tried: 'mark {} as unread',
+			},
+			{
+				id: 'flag',
+				on: 'record',
+				label: flag.flag,
+				action: actions.flag,
+				where: INBOX,
+				done: `${flag.flagged} {}`,
+				tried: `${flag.flag.toLowerCase()} {}`,
+			},
+			{
+				id: 'unflag',
+				on: 'record',
+				label: flag.unflag,
+				action: actions.flag,
+				where: INBOX,
+				done: `${flag.unflagged} {}`,
+				tried: `${flag.unflag.toLowerCase()} {}`,
+			},
+			{
+				id: 'archive',
+				on: 'record',
+				label: 'Archive',
+				action: actions.archive,
+				where: INBOX,
+				done: 'Archived {}',
+				tried: 'archive {}',
+			},
+			{
+				id: 'trash',
+				on: 'record',
+				label: 'Move to Trash',
+				action: actions.trash,
+				where: INBOX,
+				done: 'Moved {} to Trash',
+				tried: 'move {} to Trash',
+			},
+			{
+				id: 'send',
+				on: 'record',
+				label: 'Send',
+				action: actions.send,
+				where: {field: 'folder', values: ['Draft']},
+				done: 'Sent {}',
+				tried: 'send {}',
+			},
+			{
+				id: 'sendNew',
+				on: 'new',
+				label: 'Send',
+				action: actions.send,
+				done: 'Sent {}',
+				tried: 'send {}',
+			},
+		],
+		fields: [
+			{
+				key: 'folder',
+				label: 'Folder',
+				type: 'select',
+				options: args.folders,
+				system: true,
+			},
+			{key: 'from', label: 'From', type: 'email', system: true},
+			{key: 'to', label: 'To', type: 'email'},
+			{key: 'subject', label: 'Subject', type: 'text'},
+			{key: 'date', label: 'Date', type: 'datetime', system: true},
+			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
+			{key: 'status', label: 'Status', type: 'text', system: true},
+			{key: 'body', label: 'Body', type: 'longtext'},
+		],
+	};
+}
+
 // Any mailbox over IMAP and SMTP, signed in with an app password. The password can't be limited,
 // so access is only ever narrowed in Personal Agent Proxy. The inbox, drafts and sent mail are one
 // list, each email saying which folder it is in. Received emails are never edited or deleted for
@@ -64,109 +207,21 @@ const email: Integration = {
 		},
 	],
 	collections: [
-		{
-			id: 'emails',
-			name: 'Email',
-			singular: 'email',
-			titleField: 'subject',
-			summaryField: 'from',
-			filterField: 'folder',
+		emailsCollection({
+			actions: {
+				read: 'read',
+				mark: 'mark',
+				flag: 'flag',
+				archive: 'archive',
+				write: 'write',
+				trash: 'trash',
+				send: 'send',
+			},
+			folders: ['Inbox', 'Draft', 'Sent'],
 			searchHint:
 				'On Gmail, Gmail’s own search syntax works, such as from:sam has:attachment newer_than:7d. Other mailboxes match the words in the sender, recipients, subject and text.',
-			read: 'read',
-			createLabel: 'Save as draft',
-			writes: {create: 'write', update: 'write', delete: 'write'},
-			editable: {field: 'folder', values: ['Draft']},
-			commands: [
-				{
-					id: 'markRead',
-					on: 'record',
-					label: 'Mark as read',
-					action: 'mark',
-					where: INBOX,
-					done: 'Marked {} as read',
-					tried: 'mark {} as read',
-				},
-				{
-					id: 'markUnread',
-					on: 'record',
-					label: 'Mark as unread',
-					action: 'mark',
-					where: INBOX,
-					done: 'Marked {} as unread',
-					tried: 'mark {} as unread',
-				},
-				{
-					id: 'flag',
-					on: 'record',
-					label: 'Flag',
-					action: 'flag',
-					where: INBOX,
-					done: 'Flagged {}',
-					tried: 'flag {}',
-				},
-				{
-					id: 'unflag',
-					on: 'record',
-					label: 'Unflag',
-					action: 'flag',
-					where: INBOX,
-					done: 'Unflagged {}',
-					tried: 'unflag {}',
-				},
-				{
-					id: 'archive',
-					on: 'record',
-					label: 'Archive',
-					action: 'archive',
-					where: INBOX,
-					done: 'Archived {}',
-					tried: 'archive {}',
-				},
-				{
-					id: 'trash',
-					on: 'record',
-					label: 'Move to Trash',
-					action: 'trash',
-					where: INBOX,
-					done: 'Moved {} to Trash',
-					tried: 'move {} to Trash',
-				},
-				{
-					id: 'send',
-					on: 'record',
-					label: 'Send',
-					action: 'send',
-					where: {field: 'folder', values: ['Draft']},
-					done: 'Sent {}',
-					tried: 'send {}',
-				},
-				{
-					id: 'sendNew',
-					on: 'new',
-					label: 'Send',
-					action: 'send',
-					done: 'Sent {}',
-					tried: 'send {}',
-				},
-			],
-			fields: [
-				{
-					key: 'folder',
-					label: 'Folder',
-					type: 'select',
-					options: ['Inbox', 'Draft', 'Sent'],
-					system: true,
-				},
-				{key: 'from', label: 'From', type: 'email', system: true},
-				{key: 'to', label: 'To', type: 'email'},
-				{key: 'subject', label: 'Subject', type: 'text'},
-				{key: 'date', label: 'Date', type: 'datetime', system: true},
-				// "Unread, Flagged", from the flags of an email in the inbox.
-				{key: 'status', label: 'Status', type: 'text', system: true},
-				{key: 'body', label: 'Body', type: 'longtext'},
-			],
-		},
+			flag: FLAG,
+		}),
 	],
 };
 
@@ -511,10 +566,13 @@ const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or
 
 // A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
 // Gmail, Drive, Docs, Sheets and Slides. One connection holds every product, so action ids carry
-// the product, as Information's `readCards` and `writeCards` do. Drive is one tree: My Drive,
-// Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet holding
-// its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as "Header:
-// value" lines. Nothing is copied: every request goes to Google.
+// the product, as Information's `readCards` and `writeCards` do. Gmail is the same email as any
+// mailbox's, its labels as folders: all mail but Spam and Trash in one list, narrowed to the inbox,
+// drafts, sent mail, the archive, Trash or Spam. Drafts are the only email edited or deleted;
+// nothing else is deleted for good, only moved to Trash. Drive is one tree: My Drive, Shared with
+// me, Shared drives and Recent at the top, folders holding files, a spreadsheet holding its tabs and
+// a tab its rows. Documents read as Markdown, presentations as text, rows as "Header: value" lines.
+// Nothing is copied: every request goes to Google.
 const google: Integration = {
 	id: 'google',
 	name: 'Google',
@@ -524,14 +582,78 @@ const google: Integration = {
 		'What is ticked here is what your agents can read and do with this Google account through Personal Agent Proxy, each time you ask them to. Personal Agent Proxy keeps only the sign-in and the activity log; nothing from Google is used to train a model.',
 	actions: [
 		{
+			id: 'readEmails',
+			label: 'Read email',
+			description: 'List, search and open email in Gmail, drafts and sent mail included',
+			risk: 'low',
+		},
+		{
+			id: 'markEmails',
+			label: 'Mark read or unread',
+			description: 'Mark emails in the inbox read or unread',
+			risk: 'low',
+			requires: 'readEmails',
+		},
+		{
+			id: 'flagEmails',
+			label: 'Star',
+			description: 'Star and unstar emails in the inbox',
+			risk: 'low',
+			requires: 'readEmails',
+		},
+		{
+			id: 'archiveEmails',
+			label: 'Archive',
+			description: 'Move emails out of the inbox, keeping them in All Mail',
+			risk: 'medium',
+			requires: 'readEmails',
+		},
+		{
+			id: 'writeEmails',
+			label: 'Write drafts',
+			description: 'Create, edit and delete drafts',
+			risk: 'medium',
+			requires: 'readEmails',
+		},
+		{
 			id: 'readFiles',
 			label: 'Read files',
 			description:
 				'Browse and search Drive, and open files, documents, spreadsheets and presentations',
 			risk: 'low',
 		},
+		{
+			id: 'trashEmails',
+			label: 'Move email to Trash',
+			description: 'Move emails to Trash, where Gmail keeps them 30 days before deleting them',
+			risk: 'high',
+			requires: 'readEmails',
+		},
+		{
+			id: 'sendEmails',
+			label: 'Send',
+			description: 'Send email from this address, new or from a draft',
+			risk: 'high',
+			reachesOthers: true,
+		},
 	],
 	collections: [
+		emailsCollection({
+			actions: {
+				read: 'readEmails',
+				mark: 'markEmails',
+				flag: 'flagEmails',
+				archive: 'archiveEmails',
+				write: 'writeEmails',
+				trash: 'trashEmails',
+				send: 'sendEmails',
+			},
+			// The archive is what is in none of the others: All Mail without the inbox.
+			folders: ['Inbox', 'Draft', 'Sent', 'Archive', 'Trash', 'Spam'],
+			searchHint:
+				'Gmail’s own search syntax, as in Gmail’s search box, such as from:sam has:attachment newer_than:7d. Inside a folder, only what is in it.',
+			flag: STAR,
+		}),
 		{
 			id: 'files',
 			name: 'Files',

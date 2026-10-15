@@ -199,8 +199,46 @@ describe('postgres and mysql', () => {
 describe('google', () => {
 	const google = integration('google');
 
-	test('files are a tree that is listed and opened, never written to yet', () => {
-		expect(integrationTools(google).map((tool) => tool.name)).toEqual(['files_list', 'files_get']);
+	test('email has the same tools as any mailbox’s, and files are listed and opened, never written to yet', () => {
+		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
+			...integrationTools(email).map((tool) => tool.name),
+			'files_list',
+			'files_get',
+		]);
+	});
+
+	test('email’s tools need the Gmail actions, and a list takes its folders and Gmail’s search', () => {
+		const list = findTool(google, 'emails_list');
+
+		expect(list?.action).toBe('readEmails');
+		expect(list?.inputSchema.properties?.folder?.enum).toEqual([
+			'Inbox',
+			'Draft',
+			'Sent',
+			'Archive',
+			'Trash',
+			'Spam',
+		]);
+		expect(list?.inputSchema.properties?.search?.description).toContain('Gmail');
+		expect(findTool(google, 'emails_flag')).toMatchObject({
+			action: 'flagEmails',
+			description: expect.stringMatching(/^Star:/),
+		});
+		expect(findTool(google, 'emails_send_new')).toMatchObject({
+			action: 'sendEmails',
+			risk: 'high',
+			reachesOthers: true,
+		});
+		expect(findTool(google, 'emails_trash')).toMatchObject({
+			action: 'trashEmails',
+			risk: 'high',
+			where: {field: 'folder', values: ['Inbox']},
+		});
+		const update = findTool(google, 'emails_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'folder',
+			values: ['Draft'],
+		});
 	});
 
 	test('a list takes the folder to list inside and a search', () => {
