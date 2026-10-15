@@ -25,7 +25,11 @@ function customAgent(id: string, name: string): AgentLogin {
 	};
 }
 
-function renderAgentSetup(providerId: AgentProviderId, agents: AgentLogin[] = []) {
+function renderAgentSetup(
+	providerId: AgentProviderId,
+	agents: AgentLogin[] = [],
+	onContinue: (agent: AgentLogin | null) => void = () => undefined,
+) {
 	const provider = findAgentProvider(providerId);
 	if (!provider) {
 		throw new Error(`${providerId} provider is missing`);
@@ -41,7 +45,7 @@ function renderAgentSetup(providerId: AgentProviderId, agents: AgentLogin[] = []
 						providers={[provider]}
 						fixed={providerId}
 						continueLabel="Continue"
-						onContinue={() => undefined}
+						onContinue={onContinue}
 					/>
 				),
 			},
@@ -138,5 +142,15 @@ describe('AgentSetup', () => {
 
 		expect(screen.getByText('Add Personal Agent Proxy to Cursor')).toBeDefined();
 		expect(screen.getByText('Cursor is signed in as Cursor.')).toBeDefined();
+	});
+
+	test('continues with Command+Enter once an agent is ready', () => {
+		const agent = customAgent('agent-1', 'Cursor');
+		const continued: Array<AgentLogin | null> = [];
+		renderAgentSetup('custom', [agent], (next) => continued.push(next));
+
+		fireEvent.keyDown(window, {key: 'Enter', metaKey: true});
+
+		expect(continued).toEqual([agent]);
 	});
 });

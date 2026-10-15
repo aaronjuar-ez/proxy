@@ -10,6 +10,7 @@ import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
+import {useCommandEnter} from '@/hooks/use-command-enter';
 
 // How often the setup asks whether the MCP client has signed in yet.
 const POLL_MS = 3000;
@@ -72,6 +73,16 @@ export function AgentSetup({
 	const chosen = chosenId ? findAgentProvider(chosenId) : undefined;
 	const existingFor = (provider: AgentProvider) =>
 		live.find((agent) => agent.providerId === provider.id && !known.has(agent.id)) ?? null;
+	const existing = chosen ? existingFor(chosen) : null;
+	useCommandEnter(
+		() => {
+			if (!chosen) {
+				return;
+			}
+			onContinue(existing);
+		},
+		chosen !== undefined && !pending,
+	);
 
 	const choose = async (provider: AgentProvider) => {
 		setArrival(null);
@@ -158,7 +169,6 @@ export function AgentSetup({
 		);
 	}
 
-	const existing = existingFor(chosen);
 	const actions = (
 		<div className={cn('flex gap-2', fixed ? 'justify-end' : 'justify-between')}>
 			{!fixed && (

@@ -6,6 +6,7 @@ import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 function connectErrorMessage(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 400) {
@@ -41,9 +42,11 @@ export function ConnectMcpForm({
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState<'connecting' | 'signingIn' | null>(null);
 	const ready = name.trim() !== '' && url.trim() !== '';
+	const form = useCommandEnterSubmit(ready && pending === null);
 
 	return (
 		<form
+			ref={form}
 			className="grid gap-4"
 			onSubmit={async (event) => {
 				event.preventDefault();

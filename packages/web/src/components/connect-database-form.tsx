@@ -19,6 +19,7 @@ import {
 import {SuccessLine} from '@/components/success-line';
 import {apiMessage} from '@/lib/agent-errors';
 import type {Connection} from '@/lib/types';
+import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 const DEFAULT_PORT: Record<DatabaseDialect, string> = {postgres: '5432', mysql: '3306'};
 
@@ -84,6 +85,7 @@ export function ConnectDatabaseForm({
 		username.trim() !== '';
 	const input: ConnectDatabaseInput = {host, port: portNumber, database, username, password, tls};
 	const passed = tested === JSON.stringify(input);
+	const form = useCommandEnterSubmit(ready && pending === null);
 
 	const test = async () => {
 		setPending('test');
@@ -99,6 +101,7 @@ export function ConnectDatabaseForm({
 
 	return (
 		<form
+			ref={form}
 			className="grid gap-4"
 			onSubmit={async (event) => {
 				event.preventDefault();
