@@ -564,6 +564,9 @@ const postgres = sqlIntegration(
 
 const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or MariaDB database');
 
+// What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
+const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
+
 // A Google account, signed in to once for everything Personal Agent Proxy reads and writes there:
 // Gmail, Drive, Docs, Sheets and Slides. One connection holds every product, so action ids carry
 // the product, as Information's `readCards` and `writeCards` do. Gmail is the same email as any
@@ -571,8 +574,10 @@ const mysql = sqlIntegration('mysql', 'MySQL', 'Tables and queries in a MySQL or
 // drafts, sent mail, the archive, Trash or Spam. Drafts are the only email edited or deleted;
 // nothing else is deleted for good, only moved to Trash. Drive is one tree: My Drive, Shared with
 // me, Shared drives and Recent at the top, folders holding files, a spreadsheet holding its tabs and
-// a tab its rows. Documents read as Markdown, presentations as text, rows as "Header: value" lines.
-// Nothing is copied: every request goes to Google.
+// a tab its rows. Documents read as Markdown, presentations as text, rows as "Header: value" lines;
+// new documents are written as Markdown and new spreadsheets as CSV, which Drive converts, and a
+// spreadsheet's ranges are read and written in A1 notation as CSV. Files are moved to Trash, never
+// deleted. Nothing is copied: every request goes to Google.
 const google: Integration = {
 	id: 'google',
 	name: 'Google',
@@ -623,6 +628,20 @@ const google: Integration = {
 			risk: 'low',
 		},
 		{
+			id: 'createFiles',
+			label: 'Create files',
+			description: 'Create folders, documents and spreadsheets, and add rows',
+			risk: 'medium',
+			requires: 'readFiles',
+		},
+		{
+			id: 'editFiles',
+			label: 'Edit files',
+			description: 'Rename files, replace a document’s content and change rows and ranges',
+			risk: 'medium',
+			requires: 'readFiles',
+		},
+		{
 			id: 'trashEmails',
 			label: 'Move email to Trash',
 			description: 'Move emails to Trash, where Gmail keeps them 30 days before deleting them',
@@ -635,6 +654,14 @@ const google: Integration = {
 			description: 'Send email from this address, new or from a draft',
 			risk: 'high',
 			reachesOthers: true,
+		},
+		{
+			id: 'trashFiles',
+			label: 'Move files to Trash',
+			description:
+				'Move files and folders to Trash, where Drive keeps them 30 days before deleting them',
+			risk: 'high',
+			requires: 'readFiles',
 		},
 	],
 	collections: [
@@ -664,25 +691,35 @@ const google: Integration = {
 				'Words in file names and contents, anywhere in Drive, or inside the folder opened.',
 			nested: true,
 			read: 'readFiles',
-			writes: {},
+			writes: {create: 'createFiles', update: 'editFiles'},
+			// The four places at the top are always there, as they are.
+			editable: {field: 'kind', values: FILE_KINDS},
+			commands: [
+				{
+					id: 'trash',
+					on: 'record',
+					label: 'Move to Trash',
+					action: 'trashFiles',
+					// A spreadsheet's tabs and rows aren't files of their own.
+					where: {
+						field: 'kind',
+						values: FILE_KINDS.filter((kind) => kind !== 'Sheet' && kind !== 'Row'),
+					},
+					done: 'Moved {} to Trash',
+					tried: 'move {} to Trash',
+				},
+			],
 			fields: [
 				{key: 'name', label: 'Name', type: 'text'},
+				// What a record is, and what a new one is to be: a folder, document or spreadsheet inside a
+				// folder or a place, or a row inside a tab, where it can be left out. It can't be changed.
 				{
 					key: 'kind',
 					label: 'Kind',
 					type: 'select',
 					// A place is one of the four at the top: My Drive, Shared with me, Shared drives, Recent.
-					options: [
-						'Place',
-						'Folder',
-						'Document',
-						'Spreadsheet',
-						'Presentation',
-						'Sheet',
-						'Row',
-						'File',
-					],
-					system: true,
+					// A shared drive holds files as a folder does, but isn't renamed or trashed here.
+					options: ['Place', 'Shared drive', ...FILE_KINDS],
 				},
 				{key: 'modified', label: 'Modified', type: 'datetime', system: true},
 				// Whoever owns the file in Drive; files in a shared drive have none.
@@ -690,8 +727,52 @@ const google: Integration = {
 				// The file in Drive.
 				{key: 'link', label: 'Link', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
-				// size, a row's values one "Header: value" a line, the headers from the tab's first row.
+				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
+				// new document is written as Markdown and a new spreadsheet as CSV. Writing a document's
+				// content replaces all of it, dropping its comments and suggestions; a row's changes only
+				// the headers written differently. A presentation's and a spreadsheet's are only read.
 				{key: 'content', label: 'Content', type: 'longtext'},
+			],
+		},
+		// A range of a spreadsheet, read or written in A1 notation, as people who know Sheets think of
+		// one, and for tabs without a header row. Never listed or opened, only run.
+		{
+			id: 'ranges',
+			name: 'Ranges',
+			singular: 'range',
+			titleField: 'range',
+			writes: {},
+			commands: [
+				{
+					id: 'read',
+					on: 'new',
+					label: 'Read',
+					action: 'readFiles',
+					readOnly: true,
+					done: 'Read {}',
+					tried: 'read {}',
+				},
+				{
+					id: 'write',
+					on: 'new',
+					label: 'Write',
+					action: 'editFiles',
+					done: 'Wrote {}',
+					tried: 'write {}',
+				},
+			],
+			fields: [
+				// The spreadsheet's id, or its link.
+				{key: 'spreadsheet', label: 'Spreadsheet', type: 'text'},
+				// A1 notation, with the tab or in the first one: 'Q1 Sales'!A1:F20, A1:F20.
+				{key: 'range', label: 'Range', type: 'text'},
+				// What Write puts in the range, as CSV, one row a line, each value as if typed into the
+				// cell: =SUM(B2:B9) is a formula.
+				{key: 'values', label: 'Values', type: 'longtext'},
+				// "12 rows", or how many of more were answered: at most 1000.
+				{key: 'rows', label: 'Rows', type: 'text', system: true},
+				// The range's values as Sheets shows them, as CSV, one row a line: after Write, as written.
+				{key: 'result', label: 'Result', type: 'longtext', system: true},
 			],
 		},
 	],

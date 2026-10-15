@@ -49,7 +49,9 @@ export type Connector = {
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.
 	create: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;
-	update: (target: RecordTarget, recordId: string, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
+	// `before` is the record as the caller read it, for a connector to tell what was written
+	// differently from it without reading it again.
+	update: (target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord) => Promise<Result<DataRecord, ApiError>>;
 	remove: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
 	// By the catalog's command id: the record commands, and those on values typed in.
 	commands?: Partial<Record<string, CommandRunner>>;

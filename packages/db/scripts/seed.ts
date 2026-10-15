@@ -354,6 +354,7 @@ const agents = [
 			grant(work, {write: true, send: true}),
 			grant(receipts, {read: true}),
 			grant(newsletters, {read: false}),
+			grant(googleAccount, {createFiles: true, editFiles: true}),
 		],
 	}),
 	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
@@ -463,6 +464,13 @@ const FILE_TITLES: [string, ...string[]] = [
 	'Trip itinerary',
 ];
 
+// The ranges agents read and write in spreadsheets.
+const RANGE_TITLES: [string, ...string[]] = [
+	"'Q1 Sales'!A1:F20",
+	'Budget!B2:B14',
+	"'Trip costs'!A1:D9",
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -488,6 +496,10 @@ function recordTitle(connection: Connection, collectionId: string): string {
 
 	if (connection.integrationId === 'linear') {
 		return pick(ISSUE_TITLES);
+	}
+
+	if (collectionId === 'ranges') {
+		return pick(RANGE_TITLES);
 	}
 
 	if (connection.integrationId === 'google') {

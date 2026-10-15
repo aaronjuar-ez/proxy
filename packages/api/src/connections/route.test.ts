@@ -115,7 +115,15 @@ describe('handleListConnectionsRoute', () => {
 		const {handleListConnectionsRoute} = await import('./route');
 		const [, connection] = (await handleListConnectionsRoute(makeRequest())).unwrap().connections;
 
-		expect(connection).toEqual({id: 'conn-2', integrationId: 'google', account: 'alex@example.com', defaults: [], tools: null, name: null, unavailable: ['readFiles']});
+		expect(connection).toEqual({
+			id: 'conn-2',
+			integrationId: 'google',
+			account: 'alex@example.com',
+			defaults: [],
+			tools: null,
+			name: null,
+			unavailable: ['readFiles', 'createFiles', 'editFiles', 'trashFiles'],
+		});
 	});
 
 	test('a user without an organization is signed out', async () => {
@@ -277,7 +285,7 @@ describe('handleSetConnectionDefaultsRoute', () => {
 		const {handleSetConnectionDefaultsRoute} = await import('./route');
 		const result = await handleSetConnectionDefaultsRoute(makeRequest({connectionId: 'conn-2'}, {actions: {readFiles: false}}));
 
-		expect(result.unwrap().unavailable).toEqual(['readFiles']);
+		expect(result.unwrap().unavailable).toEqual(['readFiles', 'createFiles', 'editFiles', 'trashFiles']);
 		expect(setConnectionDefaults).toHaveBeenCalledWith({connectionId: 'conn-2', actions: {readFiles: false}});
 	});
 

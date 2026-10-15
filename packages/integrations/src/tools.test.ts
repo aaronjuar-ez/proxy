@@ -199,11 +199,50 @@ describe('postgres and mysql', () => {
 describe('google', () => {
 	const google = integration('google');
 
-	test('email has the same tools as any mailbox’s, and files are listed and opened, never written to yet', () => {
+	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, and ranges are only run', () => {
 		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
 			...integrationTools(email).map((tool) => tool.name),
 			'files_list',
 			'files_get',
+			'files_create',
+			'files_update',
+			'files_trash',
+			'ranges_read',
+			'ranges_write',
+		]);
+	});
+
+	test('a file is made from its kind, name and content, inside the folder given, and trashing leaves out tabs and rows', () => {
+		const create = findTool(google, 'files_create');
+
+		expect(create?.action).toBe('createFiles');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'name',
+			'kind',
+			'content',
+		]);
+		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
+		const update = findTool(google, 'files_update');
+		expect(update?.kind === 'update' ? update.where?.values : null).not.toContain('Place');
+		expect(findTool(google, 'files_trash')).toMatchObject({
+			action: 'trashFiles',
+			risk: 'high',
+			where: {field: 'kind', values: ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'File']},
+		});
+	});
+
+	test('reading a range is a read, writing one needs Edit files', () => {
+		expect(findTool(google, 'ranges_read')).toMatchObject({
+			action: 'readFiles',
+			readOnly: true,
+			kind: 'newCommand',
+		});
+		expect(findTool(google, 'ranges_write')).toMatchObject({action: 'editFiles', readOnly: false});
+		expect(Object.keys(findTool(google, 'ranges_write')?.inputSchema.properties ?? {})).toEqual([
+			'spreadsheet',
+			'range',
+			'values',
 		]);
 	});
 

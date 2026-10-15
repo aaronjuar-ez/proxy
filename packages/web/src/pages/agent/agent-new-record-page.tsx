@@ -20,10 +20,11 @@ function parentTitleFromState(state: unknown): string | null {
 }
 
 // A new record, saved or run through a command such as Send, whichever the agent may do: Send and
-// Save as draft side by side when it may do both. Without either the form isn't offered; the api
-// would refuse and log it as denied. In a nested collection it goes inside `?parent=` when given,
-// such as a page inside the one the agent was looking at. A command that answers something, as
-// running a query answers its rows, shows it under the form, where the next one can be written.
+// Save as draft side by side when it may do both, or two commands side by side, as Read and Write
+// on a range. Without either the form isn't offered; the api would refuse and log it as denied. In
+// a nested collection it goes inside `?parent=` when given, such as a page inside the one the agent
+// was looking at. A command that answers something, as running a query answers its rows, shows it
+// under the form, where the next one can be written.
 export function AgentNewRecordPage() {
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
@@ -32,7 +33,7 @@ export function AgentNewRecordPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [answer, setAnswer] = useState<DataRecord | null>(null);
 	const canCreate = target !== null && allows(target.collection, target.actions, 'create');
-	const [command] = target ? newCommands(target.collection, target.actions) : [];
+	const [command, second] = target ? newCommands(target.collection, target.actions) : [];
 	if (!target || (!canCreate && !command)) {
 		return <AgentDenied>This login cannot add anything here.</AgentDenied>;
 	}
@@ -79,6 +80,24 @@ export function AgentNewRecordPage() {
 		});
 	};
 
+	// Beside a command, saving the record where the agent may, else the next command, as Write
+	// beside Read on a range.
+	const alternative = () => {
+		if (command && canCreate) {
+			return {
+				label: createLabel,
+				onSubmit: (values: Record<string, string>) => void create(values),
+			};
+		}
+		if (command && second) {
+			return {
+				label: second.label,
+				onSubmit: (values: Record<string, string>) => void run(second, values),
+			};
+		}
+		return undefined;
+	};
+
 	return (
 		<AgentShell>
 			<Crumbs
@@ -103,11 +122,7 @@ export function AgentNewRecordPage() {
 					submitLabel={command ? command.label : createLabel}
 					onCancel={() => navigate(command && !canCreate ? '/agent' : listPath)}
 					onSubmit={(values) => void (command ? run(command, values) : create(values))}
-					alternative={
-						command && canCreate
-							? {label: createLabel, onSubmit: (values) => void create(values)}
-							: undefined
-					}
+					alternative={alternative()}
 				/>
 				{answer && (
 					<RecordFields

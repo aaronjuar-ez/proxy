@@ -226,7 +226,7 @@ describe('googleConnector.list', () => {
 		expect(recent.trail).toEqual([{id: 'recent', title: 'Recent'}]);
 	});
 
-	test('shared drives are listed as folders, and inside one its own files', async () => {
+	test('shared drives are listed as such, and inside one its own files', async () => {
 		const {googleConnector} = await import('./google-connector');
 		drive.answer = (url) => {
 			if (url.pathname === '/drive/v3/drives') {
@@ -241,7 +241,7 @@ describe('googleConnector.list', () => {
 		const drives = (await googleConnector.list(target, query({parent: 'shared-drives'}))).unwrap();
 		const inside = (await googleConnector.list(target, query({parent: 'drive-0ATeamDrive'}))).unwrap();
 
-		expect(drives.records).toEqual([{id: 'drive-0ATeamDrive', values: {name: 'Team', kind: 'Folder'}, updatedAt: '', hasChildren: true}]);
+		expect(drives.records).toEqual([{id: 'drive-0ATeamDrive', values: {name: 'Team', kind: 'Shared drive'}, updatedAt: '', hasChildren: true}]);
 		const [list] = requested('/drive/v3/files');
 		expect(list?.searchParams.get('q')).toBe("'0ATeamDrive' in parents and trashed=false");
 		expect(list?.searchParams.get('corpora')).toBe('drive');
@@ -419,11 +419,11 @@ describe('googleConnector.get', () => {
 		expect(requested('/v4/spreadsheets/1Budget/values:batchGet')).toHaveLength(0);
 	});
 
-	test('a file too large to export says so', async () => {
+	test('a file too large to export says so in its content, and opens otherwise', async () => {
 		const {googleConnector} = await import('./google-connector');
-		const result = await googleConnector.get(target, '1Huge');
+		const record = (await googleConnector.get(target, '1Huge')).unwrap();
 
-		expect(result.isErr() && result.error).toEqual({kind: 'validation_error', statusCode: 400, message: 'This file is too large to read; Google exports at most 10 MB'});
+		expect(record.values).toMatchObject({name: 'Everything ever written', kind: 'Document', content: 'This file is too large to read; Google exports at most 10 MB'});
 	});
 
 	test("a disabled API is Google's own message, saying where to enable it", async () => {
@@ -443,11 +443,4 @@ describe('googleConnector.get', () => {
 
 		expect(result.isErr() && result.error).toMatchObject({kind: 'not_found', resource: 'record', id: '1Gone'});
 	});
-});
-
-test('files are not written to yet', async () => {
-	const {googleConnector} = await import('./google-connector');
-	const result = await googleConnector.update(target, '1Plan', {name: 'New name'});
-
-	expect(result.isErr() && result.error.kind).toBe('validation_error');
 });

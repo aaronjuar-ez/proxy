@@ -38,10 +38,10 @@ describe('unavailableActions', () => {
 		expect(unavailableActions(google(ALL_SCOPES))).toEqual([]);
 	});
 
-	test('a Google sign-in without Drive leaves Read files out', async () => {
+	test('a Google sign-in without Drive leaves every files action out', async () => {
 		const {unavailableActions} = await import('./unavailable');
 
-		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/drive'))))).toEqual(['readFiles']);
+		expect(unavailableActions(google(ALL_SCOPES.filter((scope) => !scope.endsWith('/drive'))))).toEqual(['readFiles', 'createFiles', 'editFiles', 'trashFiles']);
 	});
 
 	test('a Google sign-in with only gmail.send leaves every Gmail action but Send out', async () => {

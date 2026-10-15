@@ -1,12 +1,12 @@
 ---
 title: Google
-description: Connect a Google account for agents to work with Gmail and read Drive, Docs, Sheets and Slides.
+description: Connect a Google account for agents to work with Gmail and Drive, Docs, Sheets and Slides.
 ---
 
 Agents work with the account's email and the files it can open, as the person who signs in. Every
 request goes to Google live; nothing is copied. One sign-in covers Gmail, Drive, Docs, Sheets and
 Slides, and one connection holds them all. Gmail needs no app password, so it works for accounts
-that can't make one. Today agents can read files; writing them comes later.
+that can't make one.
 
 ## Before you start: a Google Cloud OAuth client
 
@@ -146,15 +146,34 @@ For Drive, Docs, Sheets and Slides:
 - **Read files** browses and searches Drive and opens files. At the top are four places: My Drive,
   Shared with me, Shared drives and Recent. My Drive, folders and shared drives list their files
   folders first, Shared with me the last shared first, and Recent the files the account opened,
-  in shared drives too, the last opened first, 50 to a page; trashed files are never listed. A search looks for words in
-  file names and contents, anywhere in Drive, or among the files in the folder opened. A document
-  opens as Markdown and a presentation as text, as Google exports them, up to Google's limit of
-  10 MB. A spreadsheet opens into its tabs, and a tab into its rows, 50 to a page, each row's
-  values as `Header: value` lines, the headers from the tab's first row. Other files, shortcuts
-  included, open as their name, kind, owner, last change and link.
+  in shared drives too, the last opened first, 50 to a page; trashed files are never listed. A
+  search looks for words in file names and contents, anywhere in Drive, or among the files in the
+  folder opened. A document opens as Markdown and a presentation as text, as Google exports them,
+  up to Google's limit of 10 MB; past it, the content says the file is too large, and the file can
+  still be renamed or moved to Trash. A spreadsheet opens into its tabs, and a tab into its rows,
+  50 to a page, each row's values as `Header: value` lines, the headers from the tab's first row; a
+  header used twice, or a column without one, goes by its column's letter, `Status (E)`. Other
+  files, shortcuts included, open as their name, kind, owner, last change and link.
+- **Create files** makes folders, documents and spreadsheets in My Drive, a folder or a shared
+  drive, and adds rows to a spreadsheet's tabs, and requires Read files. A document is written as
+  Markdown and a spreadsheet as CSV, and Google converts them as they are uploaded. A row is written
+  as `Header: value` lines, under the headers of the tab's first row, and goes after the last row
+  holding anything, from column A.
+- **Edit files** renames files and a spreadsheet's tabs, replaces a document's content, and changes
+  rows, and requires Read files. A document's content is replaced whole with the Markdown written,
+  which drops its comments and suggestions, and only when it is written differently from how it
+  read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
+  so a formula in another of its cells stays. A presentation's and a spreadsheet's content are only
+  read.
+- **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
+  before deleting them, and requires Read files. Nothing is deleted for good.
 
-Creating and editing files is coming. The sign-in already asks for it, so no new sign-in will be
-needed.
+Agents can also read and write a range of a spreadsheet, in A1 notation with its tab, such as
+`'Q1 Sales'!A1:F20`, given the spreadsheet's link or id, which covers tabs without a header row.
+A range without a tab is in the first one. Reading needs Read files and answers the values as
+Sheets shows them, as CSV, one row a line, 1000 rows at most.
+Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
+`=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
 
 ## Troubleshooting
 

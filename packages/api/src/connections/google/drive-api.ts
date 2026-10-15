@@ -1,16 +1,21 @@
+import {randomUUID} from 'node:crypto';
+
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import type {ApiError} from '@proxy/utils';
 
-import {googleRequest, googleText} from './google-client';
+import {googleRequest, googleText, googleUpload, googleWrite} from './google-client';
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
- * takes shared drives too.
+ * takes shared drives too. A file is uploaded as Markdown or CSV with the Google type it is to
+ * become, and Drive converts it.
  */
 
 const DRIVE = 'https://www.googleapis.com/drive/v3';
+
+const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
 export const PAGE_SIZE = 50;
 
@@ -55,8 +60,8 @@ const driveListSchema = z.object({drives: z.array(sharedDriveSchema), nextPageTo
 
 export type Page<T> = {items: T[]; nextPage: string | null};
 
-function driveUrl(path: string, params: Record<string, string>): URL {
-	const url = new URL(`${DRIVE}${path}`);
+function driveUrl(path: string, params: Record<string, string>, base: string = DRIVE): URL {
+	const url = new URL(`${base}${path}`);
 	for (const [name, value] of Object.entries(params)) {
 		url.searchParams.set(name, value);
 	}
@@ -116,4 +121,58 @@ export async function listSharedDrives(accessToken: string, search: string | nul
 
 export function getSharedDrive(accessToken: string, driveId: string): Promise<Result<SharedDrive, ApiError>> {
 	return googleRequest(accessToken, driveUrl(`/drives/${driveId}`, {fields: 'id,name'}), sharedDriveSchema);
+}
+
+/** A new file's name, the Google type it is to be, and the folder it goes in. */
+export type NewFile = {name: string; mimeType: string; parent: string};
+
+/** What a file is uploaded as: its type, such as `text/markdown`, and its text. */
+export type Upload = {type: string; body: string};
+
+// Text uploaded as the UTF-8 it is sent as, so Drive reads letters beyond ASCII as they are.
+function textType(type: string): string {
+	return `${type}; charset=UTF-8`;
+}
+
+// A file's metadata and its content in one request, as Drive's multipart upload takes them.
+function multipart(metadata: object, upload: Upload): Upload {
+	const boundary = `proxy-${randomUUID()}`;
+	const body = [
+		`--${boundary}`,
+		'Content-Type: application/json; charset=UTF-8',
+		'',
+		JSON.stringify(metadata),
+		`--${boundary}`,
+		`Content-Type: ${textType(upload.type)}`,
+		'',
+		upload.body,
+		`--${boundary}--`,
+	].join('\r\n');
+	return {type: `multipart/related; boundary=${boundary}`, body};
+}
+
+/** Makes a file in a folder: empty, or from what is uploaded, which Drive converts to the file's type. */
+export function createFile(accessToken: string, file: NewFile, upload: Upload | null): Promise<Result<DriveFile, ApiError>> {
+	const metadata = {name: file.name, mimeType: file.mimeType, parents: [file.parent]};
+	const params = {fields: FILE_FIELDS, supportsAllDrives: 'true'};
+	if (upload === null) {
+		return googleWrite(accessToken, 'POST', driveUrl('/files', params), metadata, driveFileSchema);
+	}
+	return googleUpload(accessToken, 'POST', driveUrl('/files', {...params, uploadType: 'multipart'}, UPLOAD), multipart(metadata, upload), driveFileSchema);
+}
+
+/** Changes a file's metadata, such as its name, or puts it in Trash. */
+export function updateFile(accessToken: string, fileId: string, changes: {name?: string; trashed?: true}): Promise<Result<DriveFile, ApiError>> {
+	return googleWrite(accessToken, 'PATCH', driveUrl(`/files/${fileId}`, {fields: FILE_FIELDS, supportsAllDrives: 'true'}), changes, driveFileSchema);
+}
+
+/** Replaces all of a file's content with what is uploaded, which Drive converts to the file's own type. */
+export function replaceContent(accessToken: string, fileId: string, upload: Upload): Promise<Result<DriveFile, ApiError>> {
+	return googleUpload(
+		accessToken,
+		'PATCH',
+		driveUrl(`/files/${fileId}`, {uploadType: 'media', fields: FILE_FIELDS, supportsAllDrives: 'true'}, UPLOAD),
+		{...upload, type: textType(upload.type)},
+		driveFileSchema,
+	);
 }

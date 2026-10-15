@@ -38,6 +38,9 @@ function readGoogleError(error: Extract<FetchError, {kind: 'http'}>): {reasons: 
 	return {reasons, message};
 }
 
+/** What reading a file past Google's export limit says, where its content would be. */
+export const TOO_LARGE_TO_READ = 'This file is too large to read; Google exports at most 10 MB';
+
 const RATE_LIMITED = ['rateLimitExceeded', 'userRateLimitExceeded', 'RATE_LIMIT_EXCEEDED'];
 
 // What Google says of a call whose token lacks the scope it takes, as sending a draft does with
@@ -61,7 +64,7 @@ export function googleError(error: FetchError): ApiError {
 
 	const {reasons, message} = readGoogleError(error);
 	if (reasons.includes('exportSizeLimitExceeded')) {
-		return ApiErr.validationError('This file is too large to read; Google exports at most 10 MB');
+		return ApiErr.validationError(TOO_LARGE_TO_READ);
 	}
 	if (reasons.includes('accessNotConfigured') || reasons.includes('SERVICE_DISABLED') || /has not been used|is disabled/.test(message)) {
 		return ApiErr.validationError(message);
@@ -101,9 +104,16 @@ export async function googleText(accessToken: string, url: URL): Promise<Result<
 	return answer.mapErr(googleError);
 }
 
-/** A POST or PUT to one of Google's APIs with a JSON body, its answer read with `schema`. */
-export async function googleWrite<S extends z.ZodType>(accessToken: string, method: 'POST' | 'PUT', url: URL, body: object, schema: S): Promise<Result<z.infer<S>, ApiError>> {
-	const init = {method, headers: {...authHeaders(accessToken), 'content-type': 'application/json'}, body: JSON.stringify(body)};
+type WriteMethod = 'POST' | 'PUT' | 'PATCH';
+
+/** A POST, PUT or PATCH to one of Google's APIs with a JSON body, its answer read with `schema`. */
+export function googleWrite<S extends z.ZodType>(accessToken: string, method: WriteMethod, url: URL, body: object, schema: S): Promise<Result<z.infer<S>, ApiError>> {
+	return googleUpload(accessToken, method, url, {type: 'application/json', body: JSON.stringify(body)}, schema);
+}
+
+/** A write whose body is of its own type, as a file uploaded to Drive is, its answer read with `schema`. */
+export async function googleUpload<S extends z.ZodType>(accessToken: string, method: WriteMethod, url: URL, content: {type: string; body: string}, schema: S): Promise<Result<z.infer<S>, ApiError>> {
+	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type}, body: content.body};
 	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
 	return answer.mapErr(googleError);
 }

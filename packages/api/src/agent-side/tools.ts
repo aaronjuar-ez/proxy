@@ -304,7 +304,7 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 		$(requireApplies(run.tool.where, before));
 		const current = Object.fromEntries(collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const values = $(parseRecordValues(collection, {...current, ...fieldsOf(params)}));
-		const record = $(await run.connector.update(run.target, recordId, values));
+		const record = $(await run.connector.update(run.target, recordId, values, before));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
 		return {record};
 	});
