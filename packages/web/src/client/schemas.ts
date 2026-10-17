@@ -42,7 +42,8 @@ export const dataRecordSchema = z.object({
 export const auditEntrySchema = z.object({
 	id: z.string(),
 	at: z.string(),
-	agentId: z.string(),
+	// None for what Personal Agent Proxy did itself, as the home page's widgets write.
+	agentId: z.string().nullable(),
 	connectionId: z.string(),
 	collectionId: z.string(),
 	action: z.string(),
@@ -52,3 +53,30 @@ export const auditEntrySchema = z.object({
 	// The web app's agent pages, or the MCP server.
 	via: z.enum(['web', 'mcp']),
 });
+
+export const activitySummarySchema = z.object({
+	// Today on the browser's clock, `2026-10-16`.
+	today: z.string(),
+	// Each agent's requests each day, days without any left out; a null agent is Personal Agent
+	// Proxy's own.
+	days: z.array(
+		z.object({
+			day: z.string(),
+			agentId: z.string().nullable(),
+			count: z.number(),
+			denied: z.number(),
+		}),
+	),
+	// The past week's requests by action, the most first.
+	week: z.array(
+		z.object({
+			connectionId: z.string(),
+			collectionId: z.string(),
+			action: z.string(),
+			outcome: z.enum(['allowed', 'denied']),
+			count: z.number(),
+		}),
+	),
+});
+
+export type ActivitySummary = z.infer<typeof activitySummarySchema>;

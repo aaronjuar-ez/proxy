@@ -14,6 +14,7 @@ import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connect
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
 import type {CommandRunner, Connector, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {gmailQuery, type EmailSearch} from './email-search';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
@@ -84,8 +85,15 @@ async function pathOf(client: ImapFlow, folder: Folder): Promise<Result<string, 
 	return Ok('INBOX');
 }
 
-/** Signs in, runs `work`, and always signs out again. */
-async function withClient<T>(target: RecordTarget, work: (client: ImapFlow, credential: EmailCredential) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+/**
+ * Signs in, runs `work`, and always signs out again; once `signal` says the work was given up on,
+ * the connection is closed there and then, rather than left open until the work is done.
+ */
+async function withClient<T>(
+	target: RecordTarget,
+	work: (client: ImapFlow, credential: EmailCredential) => Promise<Result<T, ApiError>>,
+	signal?: AbortSignal,
+): Promise<Result<T, ApiError>> {
 	const credential = readCredential(target);
 	if (credential.isErr()) {
 		return credential;
@@ -93,13 +101,20 @@ async function withClient<T>(target: RecordTarget, work: (client: ImapFlow, cred
 
 	const client = new ImapFlow(imapClientOptions(credential.value));
 	client.on('error', (error: unknown) => log.warn('imap socket error', serializeError(error)));
+	const close = () => client.close();
+	signal?.addEventListener('abort', close, {once: true});
 	const connected = await Result.wrapAsync(() => client.connect());
 	if (connected.isErr()) {
+		signal?.removeEventListener('abort', close);
 		client.close();
 		return Err(imapError(connected.error));
 	}
 
 	const outcome = (await Result.wrapAsync(() => work(client, credential.value))).mapErr((cause) => ApiErr.providerUnreachable(cause)).andThen((result) => result);
+	signal?.removeEventListener('abort', close);
+	if (signal?.aborted) {
+		return outcome;
+	}
 	await Result.wrapAsync(() => client.logout());
 	return outcome;
 }
@@ -116,8 +131,8 @@ async function inFolder<T>(client: ImapFlow, credential: EmailCredential, folder
 	});
 }
 
-function withFolder<T>(target: RecordTarget, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
-	return withClient(target, (client, credential) => inFolder(client, credential, folder, work));
+function withFolder<T>(target: RecordTarget, folder: Folder, work: (session: Session) => Promise<Result<T, ApiError>>, signal?: AbortSignal): Promise<Result<T, ApiError>> {
+	return withClient(target, (client, credential) => inFolder(client, credential, folder, work), signal);
 }
 
 function recordId(session: Session, uid: number): string {
@@ -205,10 +220,12 @@ function searchCriteria(client: ImapFlow, search: string | null): SearchObject {
 	return {text: search};
 }
 
+// What a list reads of each message.
+const SUMMARY_FIELDS = {uid: true, envelope: true, internalDate: true, flags: true};
+
 /** A folder's newest messages below the UID `before`, matching the search, and whether it has more. */
 async function folderPage(session: Session, search: string | null, before: number | null): Promise<{messages: FetchMessageObject[]; more: boolean}> {
 	const {client, mailbox} = session;
-	const fields = {uid: true, envelope: true, internalDate: true, flags: true};
 
 	// The common case, the newest messages: read by position, without a search.
 	if (!search && before === null) {
@@ -216,7 +233,7 @@ async function folderPage(session: Session, search: string | null, before: numbe
 			return {messages: [], more: false};
 		}
 		const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
-		return {messages: await client.fetchAll(range, fields), more: mailbox.exists > PAGE_SIZE};
+		return {messages: await client.fetchAll(range, SUMMARY_FIELDS), more: mailbox.exists > PAGE_SIZE};
 	}
 
 	if (before !== null && before <= 1) {
@@ -228,7 +245,123 @@ async function folderPage(session: Session, search: string | null, before: numbe
 	if (uids.length === 0) {
 		return {messages: [], more: false};
 	}
-	return {messages: await client.fetchAll(uids.join(','), fields, {uid: true}), more: found.length > PAGE_SIZE};
+	return {messages: await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true}), more: found.length > PAGE_SIZE};
+}
+
+// Any one of `conditions`.
+function anyOf(conditions: SearchObject[]): SearchObject {
+	return conditions.length === 1 && conditions[0] ? conditions[0] : {or: conditions};
+}
+
+// Every one of `conditions`. IMAP ANDs the keys of one object, so conditions that would share a key,
+// as two ORs do, go together as NOT NOT (…), which IMAP reads as the condition itself.
+function allOf(conditions: SearchObject[]): SearchObject {
+	const [first, ...rest] = conditions;
+	if (!first) {
+		return {all: true};
+	}
+	if (rest.length === 0) {
+		return first;
+	}
+	return {...first, not: {not: allOf(rest)}};
+}
+
+// A home page search in IMAP's own terms: from the sender, from, to or copied to someone, any of
+// each term's words anywhere in the email, received since the day.
+function imapCriteria(search: EmailSearch): SearchObject {
+	const {involving} = search;
+	return allOf([
+		...(search.from ? [{from: search.from}] : []),
+		...(involving ? [anyOf([{from: involving}, {to: involving}, {cc: involving}])] : []),
+		...search.words.filter((term) => term.length > 0).map((term) => anyOf(term.map((word) => ({text: word})))),
+		...(search.since ? [{since: search.since}] : []),
+	]);
+}
+
+// A record found for the home page's widgets, with who was copied, which they find people in.
+function withCc(record: DataRecord, message: FetchMessageObject): DataRecord {
+	return {...record, values: {...record.values, cc: formatAddresses(message.envelope?.cc, true)}};
+}
+
+// A home page search in the server's terms: Gmail's own syntax where it takes it, else IMAP's.
+// Gmail is asked for every email by an empty search, which X-GM-RAW won't take.
+function findCriteria(client: ImapFlow, search: EmailSearch): SearchObject {
+	const query = isGmail(client) ? gmailQuery(search) : '';
+	if (query !== '') {
+		return {gmraw: query};
+	}
+	return imapCriteria(search);
+}
+
+// The newest emails in the open inbox one search finds, at most `limit`.
+async function findInSession(session: Session, search: EmailSearch, limit: number): Promise<DataRecord[]> {
+	const {client} = session;
+	const criteria = findCriteria(client, search);
+	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
+	if (uids.length === 0) {
+		return [];
+	}
+	const messages = await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true});
+	return messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message));
+}
+
+// A search only for someone the email is from, to or copied to, which the envelope alone tells.
+function onlyInvolving(search: EmailSearch): search is EmailSearch & {involving: string} {
+	return Boolean(search.involving) && !search.from && search.words.length === 0 && !search.since;
+}
+
+// Whether the email is from, to or copied to someone, as IMAP's FROM, TO and CC match: the words
+// anywhere in the header, its names or addresses, whatever their case.
+function involves(message: FetchMessageObject, someone: string): boolean {
+	const {envelope} = message;
+	const wanted = someone.toLowerCase();
+	return [...(envelope?.from ?? []), ...(envelope?.to ?? []), ...(envelope?.cc ?? [])].some(({name, address}) => `${name ?? ''} <${address ?? ''}>`.toLowerCase().includes(wanted));
+}
+
+/**
+ * The newest emails each of `searches`, each only for someone, finds, at most `limit` each, from
+ * one IMAP search for any of them: the newest of their emails, as many as all of them could want,
+ * each going to everyone it involves. Someone those leave short, behind someone written to more,
+ * is searched for on their own, so each still gets their own newest.
+ */
+async function findEveryone(session: Session, searches: Array<EmailSearch & {involving: string}>, limit: number): Promise<DataRecord[][]> {
+	const {client} = session;
+	const criteria: SearchObject = {or: searches.flatMap(({involving}) => [{from: involving}, {to: involving}, {cc: involving}])};
+	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
+	const newest = uids.slice(0, limit * searches.length);
+	const messages = newest.length === 0 ? [] : (await client.fetchAll(newest.join(','), SUMMARY_FIELDS, {uid: true})).sort((a, b) => b.uid - a.uid);
+	const found: DataRecord[][] = [];
+	for (const search of searches) {
+		const theirs = messages.filter((message) => involves(message, search.involving)).slice(0, limit);
+		const short = theirs.length < limit && uids.length > newest.length;
+		found.push(short ? await findInSession(session, search, limit) : theirs.map((message) => withCc(toRecord(session, message), message)));
+	}
+	return found;
+}
+
+/**
+ * The newest emails in the inbox each home page search finds, at most `limit` each: in Gmail's
+ * syntax on Gmail, else in IMAP's own terms. One sign-in runs them all, as servers allow an
+ * account only so many connections at once: searches only for people, as the People widget's,
+ * as one search for any of them where it can, any others one after the other.
+ */
+export function findInboxEmails(target: RecordTarget, searches: EmailSearch[], limit: number, signal?: AbortSignal): Promise<Result<DataRecord[][], ApiError>> {
+	return withFolder(
+		target,
+		INBOX,
+		async (session) => {
+			const people = searches.filter(onlyInvolving);
+			if (searches.length > 1 && people.length === searches.length) {
+				return Ok(await findEveryone(session, people, limit));
+			}
+			const found: DataRecord[][] = [];
+			for (const search of searches) {
+				found.push(await findInSession(session, search, limit));
+			}
+			return Ok(found);
+		},
+		signal,
+	);
 }
 
 // Where each folder goes on, in a page token: the folder, its UIDVALIDITY, and the UID listing
