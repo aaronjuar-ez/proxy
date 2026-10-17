@@ -9,7 +9,7 @@ import {isOwnerPasswordHash} from '../auth/owner-password-hash';
  */
 
 export type EnvDoc = {
-	group: 'Core' | 'Sign-in' | 'Deployment';
+	group: 'Core' | 'Sign-in' | 'Connections' | 'Deployment';
 	description: string;
 	// Personal Agent Proxy does not work without it, though the api still starts so its errors can say why.
 	required?: true;
@@ -61,7 +61,7 @@ export const envSchema = z
 				group: 'Core',
 				required: true,
 				description:
-					'Encrypts the app passwords and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
+					'Encrypts the app passwords, OAuth tokens and Information records Personal Agent Proxy stores: 32 random bytes, base64 (`openssl rand -base64 32`). Back it up: changing or losing it makes everything stored with it unreadable.',
 			},
 		),
 
@@ -92,7 +92,8 @@ export const envSchema = z
 		}),
 		GOOGLE_CLIENT_ID: documented(z.string().min(1).optional(), {
 			group: 'Sign-in',
-			description: 'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`. Register `<APP_URL>/auth/google/callback` as the redirect URI.',
+			description:
+				'Turns on Google sign-in, with `GOOGLE_CLIENT_SECRET`, and connecting a Google account (Gmail, Calendar, Drive, Docs, Sheets, Slides and Contacts). Register `<APP_URL>/auth/google/callback` and `<APP_URL>/api/connections/google/callback` as redirect URIs, enable the Gmail, Calendar, Drive, Docs, Sheets, Slides and People APIs in the client’s Cloud project, and set the app’s publishing status to In production: in Testing, Google ends a connection’s sign-in after 7 days.',
 		}),
 		GOOGLE_CLIENT_SECRET: documented(z.string().min(1).optional(), {
 			group: 'Sign-in',
@@ -105,6 +106,26 @@ export const envSchema = z
 		EMAIL_FROM: documented(z.string().min(1).optional(), {
 			group: 'Sign-in',
 			description: 'The sender of magic-link emails, such as `Personal Agent Proxy <login@example.com>`, on a domain verified with Resend.',
+		}),
+
+		PLAID_CLIENT_ID: documented(z.string().min(1).optional(), {
+			group: 'Connections',
+			description:
+				'Turns on connecting bank accounts through Plaid, with `PLAID_SECRET`: the client id from the Keys page of your Plaid dashboard. Plaid’s free Trial plan, for new teams in the US and Canada, connects up to 10 banks; past that, Plaid bills each connected bank monthly.',
+		}),
+		PLAID_SECRET: documented(z.string().min(1).optional(), {
+			group: 'Connections',
+			description: 'The Plaid secret for the environment `PLAID_ENV` names: Sandbox and Production each have their own.',
+		}),
+		PLAID_ENV: documented(z.enum(['sandbox', 'production']).default('production'), {
+			group: 'Connections',
+			description: 'Which of Plaid’s environments to use: `sandbox` connects only Plaid’s test banks, signed in to with `user_good` and `pass_good`.',
+		}),
+
+		OPENROUTER_KEY: documented(z.string().min(1).optional(), {
+			group: 'Core',
+			description:
+				'An OpenRouter API key, for the model the home page asks which widget fits what a person types and what fills it in (gpt-oss-120b, on Cerebras or Groq). What is typed there is sent to it. Without it the home page says it is not set up; everything else works as before.',
 		}),
 
 		NODE_ENV: documented(z.enum(['development', 'test', 'production']).default('production'), {
@@ -129,6 +150,17 @@ export const envSchema = z
 			group: 'Deployment',
 			description: 'The version telemetry reports. The official image sets it.',
 		}),
+		ALLOW_PRIVATE_HOSTS: documented(
+			z
+				.enum(['true', 'false', '1', '0'])
+				.transform((value) => value === 'true' || value === '1')
+				.default(false),
+			{
+				group: 'Deployment',
+				description:
+					"Lets database and custom MCP server connections reach private and local addresses, such as `192.168.1.5`, `10.0.0.7` or `localhost`. They are refused otherwise, so a connection can't be pointed at something else on the server's own network. Set it to `true` when self-hosting beside your database or server.",
+			},
+		),
 	})
 	.superRefine((value, ctx) => {
 		if (value.AUTH_MODE !== 'single-owner-password') {

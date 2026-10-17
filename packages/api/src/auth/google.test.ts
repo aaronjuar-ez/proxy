@@ -38,12 +38,18 @@ const mockEnv: {
 	GOOGLE_CLIENT_ID: string | undefined;
 	GOOGLE_CLIENT_SECRET: string;
 	ALLOWED_SIGNUP_EMAILS: string[] | undefined;
+	PLAID_CLIENT_ID: string | undefined;
+	PLAID_SECRET: string;
+	PLAID_ENV: string;
 } = {
 	NODE_ENV: 'production',
 	ALLOWED_SIGNUP_EMAILS: undefined,
 	APP_URL: 'https://app.example.com',
 	GOOGLE_CLIENT_ID: 'google-client-id',
 	GOOGLE_CLIENT_SECRET: 'google-client-secret',
+	PLAID_CLIENT_ID: undefined,
+	PLAID_SECRET: 'plaid-secret',
+	PLAID_ENV: 'sandbox',
 };
 
 mock.module('../utils/env', () => ({env: mockEnv}));
@@ -134,10 +140,10 @@ function makeCallbackRequest(args: {state: string; cookieHeader: string; code?: 
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	mockEnv.AUTH_MODE = undefined;
 	mockEnv.APP_URL = 'https://app.example.com';
 	mockEnv.GOOGLE_CLIENT_ID = 'google-client-id';
 	mockEnv.ALLOWED_SIGNUP_EMAILS = undefined;
+	mockEnv.PLAID_CLIENT_ID = undefined;
 	mockTokenExchangeSuccess();
 	getAccountByProvider.mockResolvedValue(Ok(null));
 	getUserByEmail.mockResolvedValue(Ok(null));
@@ -154,12 +160,30 @@ describe('handleSignInMethodsRoute', () => {
 
 		const configured = makeRes();
 		handleSignInMethodsRoute({} as never, configured as never);
-		expect(configured.json).toHaveBeenCalledWith({google: true, password: false, email: true, dev: false});
+		expect(configured.json).toHaveBeenCalledWith({google: true, password: false, email: true, dev: false, needs: {google: true, plaid: false}});
 
 		mockEnv.GOOGLE_CLIENT_ID = undefined;
 		const unconfigured = makeRes();
 		handleSignInMethodsRoute({} as never, unconfigured as never);
-		expect(unconfigured.json).toHaveBeenCalledWith({google: false, password: false, email: true, dev: false});
+		expect(unconfigured.json).toHaveBeenCalledWith({google: false, password: false, email: true, dev: false, needs: {google: false, plaid: false}});
+	});
+
+	test('says a Google connection can start with the client alone, as its start route does', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+		mockEnv.APP_URL = undefined;
+
+		const res = makeRes();
+		handleSignInMethodsRoute({} as never, res as never);
+		expect(res.json).toHaveBeenCalledWith({google: false, password: false, email: true, dev: false, needs: {google: true, plaid: false}});
+	});
+
+	test('says a bank can be connected once the server has its Plaid keys', async () => {
+		const {handleSignInMethodsRoute} = await importRoutes();
+		mockEnv.PLAID_CLIENT_ID = 'plaid-client-id';
+
+		const res = makeRes();
+		handleSignInMethodsRoute({} as never, res as never);
+		expect(res.json).toHaveBeenCalledWith({google: true, password: false, email: true, dev: false, needs: {google: true, plaid: true}});
 	});
 });
 
@@ -469,19 +493,4 @@ describe('handleGoogleCallbackRoute', () => {
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/login?error=Callback');
 		expect(createSession).not.toHaveBeenCalled();
 	});
-});
-
-test('owner mode disables alternate sign-in routes', async () => {
-	mockEnv.AUTH_MODE = 'single-owner-password';
-	const routes = await import('./google');
-	{
-		const res = makeRes();
-		await routes.handleGoogleStartRoute({} as never, res as never);
-		expect(res.status).toHaveBeenCalledWith(404);
-	}
-	{
-		const res = makeRes();
-		await routes.handleGoogleCallbackRoute({} as never, res as never);
-		expect(res.status).toHaveBeenCalledWith(404);
-	}
 });

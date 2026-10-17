@@ -26,7 +26,6 @@ import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {BackButton} from '@/components/back-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {ConnectionAccess} from '@/components/connection-access';
-import {CustomMcpUnavailable} from '@/components/custom-mcp-tools';
 import {IconButton} from '@/components/icon-button';
 import {NotFound} from '@/components/not-found';
 import {EmptyRows, RowList} from '@/components/row-list';
@@ -133,10 +132,10 @@ function AgentDetail({id}: {id: string}) {
 						agent={agent}
 						connections={connections}
 						onChange={(connectionId, actions) =>
-							void apply(setAgentGrants(agent.id, connectionId, actions))
+							apply(setAgentGrants(agent.id, connectionId, actions))
 						}
 						onMakeDefault={(connectionId, actionId, allowed) =>
-							void apply(makeDefault(agent.id, connectionId, actionId, allowed))
+							apply(makeDefault(agent.id, connectionId, actionId, allowed))
 						}
 					/>
 				</Section>
@@ -241,13 +240,13 @@ function changedDetail(agent: AgentLogin): string | undefined {
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	onChange: (connectionId: string, actions: Record<string, boolean | null>) => void;
-	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => void;
+	onChange: (connectionId: string, actions: Record<string, boolean | null>) => Promise<void>;
+	onMakeDefault: (connectionId: string, actionId: string, allowed: boolean) => Promise<void>;
 };
 
 // Every connection, Information first, with a checkbox per action. Each starts folded to a line
-// saying whether the agent follows its default or has changed something. A filter narrows them to the connections and actions it
-// names, and Changed only keeps the actions the agent has a setting of its own for; either opens
+// saying whether the agent follows its default or has changed something. A filter narrows them to
+// the connections, actions and groups of actions (Calendar) it names, and Changed only keeps the actions the agent has a setting of its own for; either opens
 // everything it keeps.
 function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 	const [query, setQuery] = useState('');
@@ -276,13 +275,9 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 		const named = [label, connection.account].some(matches);
 		const actions = integration.actions
 			.filter((action) => !changedOnly || own[action.id] !== undefined)
-			.filter((action) => named || matches(action.label) || matches(action.description));
-		if (connection.customMcpUnavailable) {
-			if (!named || (changedOnly && Object.keys(own).length === 0)) {
-				return [];
-			}
-			return [{connection, integration, label, own, actions}];
-		}
+			.filter(
+				(action) => named || [action.label, action.description, action.group ?? ''].some(matches),
+			);
 		if (actions.length === 0) {
 			return [];
 		}
@@ -338,34 +333,18 @@ function AccessGrid({agent, connections, onChange, onMakeDefault}: GridProps) {
 								<IntegrationLogo integration={integration} />
 								<span className="min-w-0 truncate">{label}</span>
 								<span className="ml-auto shrink-0 pl-3 text-muted-foreground">
-									{connection.customMcpUnavailable
-										? 'Permissions unavailable'
-										: connection.integrationId === 'custom-mcp'
-											? `${actions.filter((action) => own[action.id] === true).length} tools allowed`
-											: Object.keys(own).length > 0
-												? 'Changed'
-												: 'Default'}
+									{Object.keys(own).length > 0 ? 'Changed' : 'Default'}
 								</span>
 							</button>
-							{open && connection.customMcpUnavailable && (
-								<div className="grid gap-2 px-3 py-2">
-									<CustomMcpUnavailable />
-									<Link to={`/connections/${connection.id}`} className="text-sm underline">
-										Manage connection
-									</Link>
-								</div>
-							)}
-							{open && !connection.customMcpUnavailable && (
+							{open && (
 								<ConnectionAccess
-									explicitOnly={connection.integrationId === 'custom-mcp'}
 									actions={actions}
 									defaults={defaultActions(connection)}
+									unavailable={connection.unavailable}
 									own={own}
 									onChange={(changes) => onChange(connection.id, changes)}
-									onMakeDefault={
-										connection.integrationId === 'custom-mcp'
-											? undefined
-											: (actionId, allowed) => onMakeDefault(connection.id, actionId, allowed)
+									onMakeDefault={(actionId, allowed) =>
+										onMakeDefault(connection.id, actionId, allowed)
 									}
 								/>
 							)}

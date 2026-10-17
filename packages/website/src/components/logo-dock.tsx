@@ -19,13 +19,14 @@ const AGENTS: Logo[] = [
 	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
 	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
 	{name: 'Poke', src: '/logos/poke.jpg', tile: '', lit: true},
+	{name: 'Hermes Agent', src: '/logos/hermes.png', tile: ''},
 	{name: 'Dots', src: '/logos/dot.svg', tile: 'bg-[#1B1E25] p-[24%]'},
 	{name: 'Instinct', src: '/logos/instinct.png', tile: 'bg-[#F4F1EC] p-[10%]'},
 ];
 
-// The services they reach through Personal Agent Proxy: Gmail (through the Email integration) and
-// Granola, which work now, and the ones coming next, Google Workspace's apps spread out among the
-// others.
+// The services they reach through Personal Agent Proxy: Gmail (through the Email integration),
+// Granola, Notion, Linear and the databases, which work now, and the ones coming next, Google
+// Workspace's apps spread out among the others.
 const SERVICES: Logo[] = [
 	{name: 'Gmail', src: '/logos/gmail.svg', tile: 'bg-white p-[22%]'},
 	{name: 'Granola', src: '/logos/granola.png', tile: 'bg-[#A4C639]'},
@@ -35,6 +36,8 @@ const SERVICES: Logo[] = [
 	{name: 'Google Docs', src: '/logos/google-docs.svg', tile: 'bg-white p-[24%]'},
 	{name: 'Google Sheets', src: '/logos/google-sheets.svg', tile: 'bg-white p-[24%]'},
 	{name: 'Linear', src: '/logos/linear.svg', tile: 'bg-[#5E6AD2] p-[26%]'},
+	{name: 'PostgreSQL', src: '/logos/postgresql.svg', tile: 'bg-white p-[22%]'},
+	{name: 'MySQL', src: '/logos/mysql.svg', tile: 'bg-white p-[22%]'},
 ];
 
 // How long one logo takes to scroll its own height and the gap after it.

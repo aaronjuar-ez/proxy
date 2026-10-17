@@ -3,11 +3,19 @@ import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 
-const listConnections = mock();
+const findAccountConnection = mock();
 const createConnection = mock();
-const updateConnectionCredential = mock();
+const renewConnection = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, createConnection, updateConnectionCredential}));
+mock.module('@proxy/db/connection', () => ({
+	findAccountConnection,
+	createConnection,
+	renewConnection,
+	updateConnectionCredential: mock(),
+	getConnectionCredential: mock(async () => Ok(null)),
+	updateConnectionTools: mock(),
+	updateConnectionName: mock(),
+}));
 
 const getUserOrgId = mock();
 
@@ -19,6 +27,9 @@ mock.module('../../observability/log', () => ({
 }));
 
 mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
+
+// The servers are on the internet.
+mock.module('node:dns/promises', () => ({default: {lookup: async () => [{address: '93.184.216.34', family: 4}]}}));
 
 // Readable stand-ins for encryption, so a test can see what was stored.
 mock.module('../../utils/secret-crypto', () => ({
@@ -90,9 +101,9 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	linear.requests = [];
 	getUserOrgId.mockResolvedValue(Ok('org-1'));
-	listConnections.mockResolvedValue(Ok([]));
+	findAccountConnection.mockResolvedValue(Ok(null));
 	createConnection.mockResolvedValue(Ok({id: 'conn-1'}));
-	updateConnectionCredential.mockResolvedValue(Ok(true));
+	renewConnection.mockResolvedValue(Ok(undefined));
 });
 
 describe('handleStartLinearRoute', () => {
@@ -128,13 +139,13 @@ describe('handleLinearCallbackRoute', () => {
 	});
 
 	test('signing in to the same workspace again gives its connection the new tokens', async () => {
-		listConnections.mockResolvedValue(Ok([{id: 'conn-0', integrationId: 'linear', account: 'alex@example.com · Acme'}]));
+		findAccountConnection.mockResolvedValue(Ok({id: 'conn-0'}));
 		const {cookie, state} = await start();
 		const res = await callback({cookie: cookie?.value ?? '', query: {state, code: 'code-1'}});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(updateConnectionCredential.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
-		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0?added');
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0'});
+		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/connections/conn-0');
 	});
 
 	test('a sign-in turned down at Linear goes back to the catalog', async () => {

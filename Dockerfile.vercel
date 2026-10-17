@@ -23,6 +23,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/db/prisma packages/db/prisma
 COPY packages/docs/package.json packages/docs/
 COPY packages/integrations/package.json packages/integrations/
+COPY packages/map/package.json packages/map/
 COPY packages/ui/package.json packages/ui/
 COPY packages/utils/package.json packages/utils/
 COPY packages/web/package.json packages/web/

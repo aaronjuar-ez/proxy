@@ -6,8 +6,20 @@ import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {sanitizeCallbackUrl} from '@/lib/callback-url';
 import {LoginPage} from './login-page';
 
-const owner = {password: true, email: false, google: false, dev: false};
-const standard = {password: false, email: true, google: true, dev: true};
+const owner = {
+	password: true,
+	email: false,
+	google: false,
+	dev: false,
+	needs: {google: false, plaid: false},
+};
+const standard = {
+	password: false,
+	email: true,
+	google: true,
+	dev: true,
+	needs: {google: false, plaid: false},
+};
 const originalFetch = globalThis.fetch;
 const fetchSpy = spyOn(globalThis, 'fetch');
 afterAll(() => fetchSpy.mockRestore());
@@ -51,7 +63,7 @@ test('password mode offers username and current password, preserving agent login
 	expect(password.getAttribute('type')).toBe('password');
 	expect(screen.queryByLabelText('Email')).toBeNull();
 	expect(screen.queryByRole('button', {name: 'Continue with Google'})).toBeNull();
-	expect(screen.queryByRole('button', {name: 'Create dev user'})).toBeNull();
+	expect(screen.queryByRole('button', {name: 'Log in as dev user'})).toBeNull();
 	expect(screen.getByRole('link', {name: 'Go here instead!'}).getAttribute('href')).toBe(
 		'/agent/login',
 	);
@@ -61,12 +73,18 @@ test('standard mode keeps email, Google and server-authorized development login'
 	renderLogin(standard);
 	await screen.findByLabelText('Email');
 	expect(screen.getByRole('button', {name: 'Continue with Google'})).toBeTruthy();
-	expect(screen.getByRole('button', {name: 'Create dev user'})).toBeTruthy();
+	expect(screen.getByRole('button', {name: 'Log in as dev user'})).toBeTruthy();
 	expect(screen.queryByLabelText('Password')).toBeNull();
 });
 
 test('method availability failure offers retry without guessing a sign-in method', async () => {
-	renderLogin({password: false, email: false, google: false, dev: false});
+	renderLogin({
+		password: false,
+		email: false,
+		google: false,
+		dev: false,
+		needs: {google: false, plaid: false},
+	});
 	expect((await screen.findByRole('alert')).textContent).toContain('temporarily unavailable');
 	expect(screen.getByRole('button', {name: 'Try again'})).toBeTruthy();
 	expect(screen.queryByLabelText('Email')).toBeNull();

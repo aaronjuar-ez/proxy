@@ -10,7 +10,7 @@ describe('agent providers', () => {
 	});
 
 	test('each has its favicon bundled with the web app', async () => {
-		for (const provider of AGENT_PROVIDERS) {
+		for (const provider of AGENT_PROVIDERS.filter((candidate) => !candidate.custom)) {
 			expect(
 				await Bun.file(new URL(`../../web/public${provider.faviconUrl}`, import.meta.url)).exists(),
 			).toBe(true);
@@ -18,7 +18,7 @@ describe('agent providers', () => {
 	});
 
 	test('each uses the logo shown in the README', async () => {
-		for (const provider of AGENT_PROVIDERS) {
+		for (const provider of AGENT_PROVIDERS.filter((candidate) => !candidate.custom)) {
 			const productLogo = await Bun.file(
 				new URL(`../../web/public${provider.faviconUrl}`, import.meta.url),
 			).bytes();
@@ -39,9 +39,11 @@ describe('agent providers', () => {
 		expect(suggestAgentProvider('Claude')?.id).toBe('claude');
 		expect(suggestAgentProvider('Claude Code')?.id).toBe('claude-code');
 		expect(suggestAgentProvider('Claude Desktop')?.id).toBe('claude-desktop');
+		expect(suggestAgentProvider('Hermes Agent')?.id).toBe('hermes');
 		expect(suggestAgentProvider('ChatGPT Connector')?.id).toBe('chatgpt');
 		expect(suggestAgentProvider('Dot')?.id).toBe('dot');
 		expect(suggestAgentProvider('Poke MCP client')?.id).toBe('poke');
 		expect(suggestAgentProvider('MCP Inspector')).toBeUndefined();
+		expect(suggestAgentProvider('Custom MCP agent')).toBeUndefined();
 	});
 });

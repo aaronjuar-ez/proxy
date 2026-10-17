@@ -36,7 +36,11 @@ type Status =
 	| {kind: 'sent'; logged: boolean}
 	| {kind: 'error'; message: string};
 
-// All human sign-in methods use the same session and same-site callback.
+// The terms and the privacy policy live on the website, whatever origin the app is on.
+const WEBSITE_URL = 'https://personalagentproxy.com';
+
+// All human sign-in methods use the same session and same-site callback. Signing up past the
+// notice under the form accepts the terms, which the api records on the new account.
 export function LoginPage() {
 	const methods = useLoaderData<SignInMethods>();
 	const [searchParams] = useSearchParams();
@@ -128,8 +132,31 @@ export function LoginPage() {
 						)}
 					</form>
 				)}
+				{!methods.password && (methods.email || methods.google) && (
+					<p className="text-sm text-balance text-muted-foreground">
+						By continuing, you agree to the{' '}
+						<a
+							href={`${WEBSITE_URL}/terms/`}
+							target="_blank"
+							rel="noreferrer"
+							className="text-foreground underline underline-offset-4"
+						>
+							Terms of Service
+						</a>{' '}
+						and{' '}
+						<a
+							href={`${WEBSITE_URL}/privacy/`}
+							target="_blank"
+							rel="noreferrer"
+							className="text-foreground underline underline-offset-4"
+						>
+							Privacy Policy
+						</a>
+						.
+					</p>
+				)}
 				{!methods.password && methods.dev && <DevLoginButton callbackUrl={callbackUrl} />}
-				{!Object.values(methods).some(Boolean) && (
+				{!methods.password && !methods.email && !methods.google && !methods.dev && (
 					<>
 						<p role="alert" className="text-sm text-destructive">
 							Sign-in is temporarily unavailable. Please try again.
@@ -144,7 +171,7 @@ export function LoginPage() {
 	);
 }
 
-// Development only: a fresh throwaway user, signed in at once, without Google or an email.
+// Development only: the same dev user every time, signed in at once, without Google or an email.
 function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 	const [loading, setLoading] = useState(false);
 
@@ -162,7 +189,7 @@ function DevLoginButton({callbackUrl}: {callbackUrl: string | undefined}) {
 				window.location.href = callbackUrl ?? '/';
 			}}
 		>
-			Create dev user
+			Log in as dev user
 		</Button>
 	);
 }

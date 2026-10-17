@@ -29,9 +29,10 @@ test("every read, write, command and requirement names one of the integration's 
 		const named = [
 			...each.actions.flatMap((action) => (action.requires ? [action.requires] : [])),
 			...each.collections.flatMap((one) => [
-				one.read,
+				...(one.read ? [one.read] : []),
 				...Object.values(one.writes),
 				...(one.commands ?? []).map((command) => command.action),
+				...one.fields.flatMap((field) => (field.action ? [field.action] : [])),
 			]),
 		];
 		expect(named.filter((id) => !ids.includes(id))).toEqual([]);
@@ -55,6 +56,16 @@ describe('effectiveActions', () => {
 		]);
 	});
 
+	test('an action counts only while the whole chain under it does', () => {
+		const google = integration('google');
+		expect(effectiveActions(google, ['readEvents', 'writeEvents', 'inviteGuests'])).toEqual([
+			'readEvents',
+			'writeEvents',
+			'inviteGuests',
+		]);
+		expect(effectiveActions(google, ['writeEvents', 'inviteGuests'])).toEqual([]);
+	});
+
 	test('sending needs nothing else', () => {
 		expect(effectiveActions(email, ['send'])).toEqual(['send']);
 	});
@@ -62,6 +73,20 @@ describe('effectiveActions', () => {
 	test('an action the catalog no longer has is dropped', () => {
 		expect(effectiveActions(email, ['read', 'gone'])).toEqual(['read']);
 	});
+
+	test("an action the sign-in didn't cover is off whatever is ticked, and so are those requiring it", () => {
+		expect(effectiveActions(email, ['read', 'archive'], {}, ['read'])).toEqual([]);
+		expect(effectiveActions(email, ['send'], {send: true}, ['send'])).toEqual([]);
+		expect(effectiveActions(email, ['read', 'send'], {}, ['send'])).toEqual(['read']);
+	});
+});
+
+test("an integration's groups each hold their actions together, in one run", () => {
+	for (const each of INTEGRATIONS) {
+		const groups = each.actions.map((action) => action.group);
+		const runs = groups.filter((group, index) => group !== groups[index - 1]);
+		expect(runs).toEqual([...new Set(runs)]);
+	}
 });
 
 describe('requiredAction', () => {

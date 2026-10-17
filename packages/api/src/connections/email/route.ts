@@ -89,6 +89,7 @@ export function handleConnectEmailRoute(request: AuthenticatedRequest): Promise<
 		$(await checkMailbox(credential));
 
 		const row = $(await createConnection({orgId, integrationId: 'email', account: email, credential: encrypted}));
-		return toConnectionResponse(row);
+		// A password signs in to all of it: every action is available.
+		return toConnectionResponse(row, []);
 	});
 }

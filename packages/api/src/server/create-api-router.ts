@@ -1,10 +1,8 @@
-import {handleStartCustomMcpOAuth, handleCustomMcpOAuthCallback, handleDiscoverCustomMcpOAuth} from '../connections/custom-mcp/oauth-route';
 import express from 'express';
-import {handleCreateCustomMcpRoute, handleGetCustomMcpRoute, handleRefreshCustomMcpRoute} from '../connections/custom-mcp/route';
 
-import {handleListActivityRoute} from '../activity/route';
+import {handleActivitySummaryRoute, handleListActivityRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
-import {handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
+import {handleAgentFeedbackRoute, handleAgentListToolsRoute, handleAgentMeRoute, handleAgentRunToolRoute} from '../agent-side/route';
 import {
 	handleCreateAgentRoute,
 	handleDeleteAgentRoute,
@@ -21,18 +19,31 @@ import {handleEmailSignInRoute, handleEmailVerifyRoute} from '../auth/email';
 import {handleGoogleCallbackRoute, handleGoogleStartRoute, handleSignInMethodsRoute} from '../auth/google';
 import {handlePasswordLoginRoute} from '../auth/password';
 import {handleSignOutRoute} from '../auth/signout';
+import {handleConnectCustomMcpRoute, handleCustomMcpCallbackRoute, handleRefreshCustomMcpToolsRoute} from '../connections/custom/route';
 import {handleConnectEmailRoute, handleTestEmailRoute} from '../connections/email/route';
+import {handleGoogleCallbackRoute as handleConnectGoogleCallbackRoute, handleStartGoogleRoute} from '../connections/google/route';
 import {handleGranolaCallbackRoute, handleStartGranolaRoute} from '../connections/granola/route';
 import {handleLinearCallbackRoute, handleStartLinearRoute} from '../connections/linear/route';
+import {handleConnectMysqlRoute, handleTestMysqlRoute} from '../connections/mysql/route';
 import {handleNotionCallbackRoute, handleStartNotionRoute} from '../connections/notion/route';
-import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {handleConnectPlaidRoute, handleCreatePlaidLinkTokenRoute} from '../connections/plaid/route';
+import {handleConnectPostgresRoute, handleTestPostgresRoute} from '../connections/postgres/route';
+import {handleDeleteConnectionRoute, handleGetConnectionRoute, handleListConnectionsRoute, handleRenameConnectionRoute, handleSetConnectionDefaultsRoute} from '../connections/route';
+import {handleClassifyIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
-import {handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
+import {handleDeleteMeRoute, handleFinishOnboardingRoute, handleMeRoute} from '../me/route';
 import {handleAuthorizeRoute, handleConsentRoute, handleGetAuthorizationRequestRoute} from '../oauth/authorize';
 import {handleAuthorizationServerMetadataRoute, handleProtectedResourceMetadataRoute} from '../oauth/metadata';
 import {handleRegisterClientRoute} from '../oauth/register';
 import {handleTokenRoute} from '../oauth/token';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
+import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
+import {handleEditEventRoute} from '../widgets/edit-event';
+import {handleFindEmailsRoute, handleMailboxesRoute, handleWriteEmailRoute} from '../widgets/emails';
+import {handleFindFilesRoute} from '../widgets/files';
+import {handleCreateEventRoute} from '../widgets/new-event';
+import {handlePeopleRoute} from '../widgets/people';
+import {handleRatesRoute} from '../widgets/rates';
 import {allowAnyOrigin} from './middleware/allow-any-origin';
 import {requireBrowserOrigin} from './middleware/require-browser-origin';
 import {withAgentAuthResult} from './middleware/require-agent';
@@ -60,26 +71,33 @@ export function createApiRouter(): express.Router {
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.post('/api/me/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
+	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
 
 	router.use('/api/connections', requireBrowserOrigin);
 	router.get('/api/connections', withAuthResult('List connections route', handleListConnectionsRoute));
 	router.post('/api/connections/email', withAuthResult('Connect email route', handleConnectEmailRoute));
 	router.post('/api/connections/email/test', withAuthResult('Test email route', handleTestEmailRoute));
+	router.get('/api/connections/google/start', withAuth('Start Google sign-in route', handleStartGoogleRoute));
+	router.get('/api/connections/google/callback', withAuth('Google sign-in callback route', handleConnectGoogleCallbackRoute));
 	router.get('/api/connections/granola/start', withAuth('Start Granola sign-in route', handleStartGranolaRoute));
 	router.get('/api/connections/granola/callback', withAuth('Granola sign-in callback route', handleGranolaCallbackRoute));
 	router.get('/api/connections/notion/start', withAuth('Start Notion sign-in route', handleStartNotionRoute));
 	router.get('/api/connections/notion/callback', withAuth('Notion sign-in callback route', handleNotionCallbackRoute));
 	router.get('/api/connections/linear/start', withAuth('Start Linear sign-in route', handleStartLinearRoute));
 	router.get('/api/connections/linear/callback', withAuth('Linear sign-in callback route', handleLinearCallbackRoute));
-	router.post('/api/connections/custom-mcp/oauth/discover', withAuthResult('Discover custom MCP OAuth route', handleDiscoverCustomMcpOAuth));
-	router.post('/api/connections/custom-mcp/oauth/start', withAuth('Start custom MCP OAuth route', handleStartCustomMcpOAuth));
-	router.get('/api/connections/custom-mcp/oauth/callback/:issuerKey', withAuth('Custom MCP OAuth callback route', handleCustomMcpOAuthCallback));
-	router.post('/api/connections/custom-mcp', withAuthResult('Connect custom MCP route', handleCreateCustomMcpRoute));
-	router.get('/api/connections/:connectionId/custom-mcp', withAuthResult('Get custom MCP route', handleGetCustomMcpRoute));
-	router.post('/api/connections/:connectionId/custom-mcp/refresh', withAuthResult('Refresh custom MCP route', handleRefreshCustomMcpRoute));
+	router.post('/api/connections/plaid', withAuthResult('Connect Plaid route', handleConnectPlaidRoute));
+	router.post('/api/connections/plaid/link-token', withAuthResult('Create Plaid Link token route', handleCreatePlaidLinkTokenRoute));
+	router.post('/api/connections/postgres', withAuthResult('Connect Postgres route', handleConnectPostgresRoute));
+	router.post('/api/connections/postgres/test', withAuthResult('Test Postgres route', handleTestPostgresRoute));
+	router.post('/api/connections/mysql', withAuthResult('Connect MySQL route', handleConnectMysqlRoute));
+	router.post('/api/connections/mysql/test', withAuthResult('Test MySQL route', handleTestMysqlRoute));
+	router.post('/api/connections/mcp', withAuth('Connect custom MCP server route', handleConnectCustomMcpRoute));
+	router.get('/api/connections/mcp/callback', withAuth('Custom MCP server sign-in callback route', handleCustomMcpCallbackRoute));
 	router.get('/api/connections/:connectionId', withAuthResult('Get connection route', handleGetConnectionRoute));
 	router.delete('/api/connections/:connectionId', withAuthResult('Delete connection route', handleDeleteConnectionRoute));
 	router.put('/api/connections/:connectionId/defaults', withAuthResult('Set connection defaults route', handleSetConnectionDefaultsRoute));
+	router.put('/api/connections/:connectionId/name', withAuthResult('Rename connection route', handleRenameConnectionRoute));
+	router.post('/api/connections/:connectionId/tools', withAuthResult('Refresh custom MCP server tools route', handleRefreshCustomMcpToolsRoute));
 	const records = '/api/connections/:connectionId/collections/:collectionId/records';
 	router.get(records, withAuthResult('List records route', handleListRecordsRoute));
 	router.post(records, withAuthResult('Create record route', handleCreateRecordRoute));
@@ -100,6 +118,24 @@ export function createApiRouter(): express.Router {
 
 	router.use('/api/activity', requireBrowserOrigin);
 	router.get('/api/activity', withAuthResult('List activity route', handleListActivityRoute));
+	router.get('/api/activity/summary', withAuthResult('Activity summary route', handleActivitySummaryRoute));
+
+	// The home page: which widget fits what the person types, and the entities in it.
+	router.use('/api/intent', requireBrowserOrigin);
+	router.post('/api/intent', withAuthResult('Classify intent route', handleClassifyIntentRoute));
+	// Its widgets: every connection with the collection a widget is about, read at once, and
+	// written to as the person picks.
+	router.use('/api/widgets', requireBrowserOrigin);
+	router.get('/api/widgets/people', withAuthResult('Widget people route', handlePeopleRoute));
+	router.get('/api/widgets/agenda', withAuthResult('Widget agenda route', handleAgendaRoute));
+	router.get('/api/widgets/events', withAuthResult('Widget find events route', handleFindEventsRoute));
+	router.post('/api/widgets/events', withAuthResult('Widget create event route', handleCreateEventRoute));
+	router.put('/api/widgets/events', withAuthResult('Widget edit event route', handleEditEventRoute));
+	router.get('/api/widgets/emails', withAuthResult('Widget find emails route', handleFindEmailsRoute));
+	router.post('/api/widgets/emails', withAuthResult('Widget write email route', handleWriteEmailRoute));
+	router.get('/api/widgets/mailboxes', withAuthResult('Widget mailboxes route', handleMailboxesRoute));
+	router.get('/api/widgets/files', withAuthResult('Widget find files route', handleFindFilesRoute));
+	router.get('/api/widgets/rates', withAuthResult('Widget exchange rates route', handleRatesRoute));
 
 	// The agent side: its own sign-in and cookie, and every request checked against the agent's
 	// access and logged.
@@ -109,6 +145,7 @@ export function createApiRouter(): express.Router {
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
 	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
 	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
+	router.post('/api/agent/feedback', withAgentAuthResult('Agent feedback route', handleAgentFeedbackRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

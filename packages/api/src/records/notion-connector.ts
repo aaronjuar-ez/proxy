@@ -22,8 +22,9 @@ import {
 	type NotionRef,
 	type NotionView,
 } from '../connections/notion/notion-mcp';
-import {notionValues, propertyLines, readPropertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
+import {notionValues, propertyLines, shapeOfType, shapeOfValue, type NotionValue, type PropertyShape} from '../connections/notion/notion-properties';
 import type {Connector, Crumb, DataRecord, ListQuery, RecordPage, RecordTarget, RecordValues} from './connector';
+import {readValueLines} from './value-lines';
 
 /**
  * A Notion workspace, fetched live from Notion's MCP server as the person who signed in, as a tree
@@ -47,11 +48,17 @@ function callNotion(target: RecordTarget, name: string, args: Record<string, unk
 	return callMcpToolFor(NOTION, target.connection, name, args);
 }
 
+// Where Notion gave an address: a view has none here.
+function urlOf(url: string): Pick<DataRecord, 'url'> {
+	return url ? {url} : {};
+}
+
 function nodeRecord(node: NotionNode): DataRecord {
 	return {
 		id: node.id,
 		values: {title: node.title, kind: node.kind, path: node.path},
 		updatedAt: node.day ?? '',
+		...urlOf(node.url),
 		// A page's children are only known once it is opened.
 		...(node.kind === 'Page' ? {} : {hasChildren: true}),
 	};
@@ -65,13 +72,14 @@ function fetchedRecord(fetched: NotionPage | NotionDatabase | NotionView): DataR
 	if (fetched.kind === 'Page') {
 		return {
 			id: fetched.id,
-			values: {title: fetched.title, kind: 'Page', path: fetched.path, link: fetched.url, edited: fetched.edited, properties: propertyLines(fetched.properties), content: fetched.content},
+			values: {title: fetched.title, kind: 'Page', path: fetched.path, edited: fetched.edited, properties: propertyLines(fetched.properties), content: fetched.content},
 			updatedAt: fetched.edited,
+			...urlOf(fetched.url),
 			hasChildren: fetched.children.length > 0,
 		};
 	}
 	if (fetched.kind === 'Database') {
-		return {id: fetched.id, values: {title: fetched.title, kind: 'Database', path: pathOf(fetched.trail), link: fetched.url}, updatedAt: '', hasChildren: true};
+		return {id: fetched.id, values: {title: fetched.title, kind: 'Database', path: pathOf(fetched.trail)}, updatedAt: '', ...urlOf(fetched.url), hasChildren: true};
 	}
 	return {id: fetched.id, values: {title: fetched.title, kind: 'View'}, updatedAt: '', hasChildren: true};
 }
@@ -223,7 +231,7 @@ function list(target: RecordTarget, query: ListQuery): Promise<Result<RecordPage
 // The properties lines written, as Notion's page tools take them, for the properties `shapes` names.
 function writtenProperties(text: string, shapes: Record<string, PropertyShape>, unchanged: (name: string, value: string) => boolean): Result<Record<string, NotionValue>, ApiError> {
 	return Do<Record<string, NotionValue>, ApiError>(($) => {
-		const written = $(readPropertyLines(text, Object.keys(shapes)));
+		const written = $(readValueLines(text, Object.keys(shapes)));
 		const values: Record<string, NotionValue> = {};
 		for (const [name, value] of Object.entries(written)) {
 			const shape = shapes[name];

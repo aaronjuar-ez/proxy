@@ -1,15 +1,15 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, ChatGPT or Poke as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, ChatGPT, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
-Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT or Poke,
-connects to it, signs in with OAuth, and works as one of your agent logins: it can do what that
-login is allowed and nothing more, and every request it makes is in the activity log.
+Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, ChatGPT, Hermes
+Agent, Poke or any other MCP client, connects to it, signs in with OAuth, and works as one of your agent logins: it can
+do what that login is allowed and nothing more, and every request it makes is in the activity log.
 
 The server is at your Personal Agent Proxy's address with `/mcp` after it, such as
 `https://app.personalagentproxy.com/mcp`. Each agent's page in Personal Agent Proxy shows it under
-**MCP**, with a button to copy it.
+**MCP**, with a button to copy the address or setup command.
 
 <Steps>
 
@@ -20,8 +20,15 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
 - **Claude**: in **Settings**, **Connectors**, **Add custom connector**.
 - **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
   connector with the address.
+- **Hermes Agent**: copy and run the `hermes mcp add` command shown on its setup page. The command
+  enables OAuth and gives the browser sign-in five minutes to finish. When Hermes Agent runs on a
+  remote host, open the printed link locally, approve it, then paste the full redirect URL back into
+  the terminal when asked.
 - **Poke**: on [poke.com/integrations/new](https://poke.com/integrations/new), enter a name and the
   address, and leave the API key empty.
+- **Any other agent**: choose **Custom MCP agent** when adding an agent, and add the address
+  wherever the agent keeps remote MCP servers, over Streamable HTTP. It signs in with OAuth, so leave
+  any API key or token empty.
 
 ### Sign in
 
@@ -32,7 +39,9 @@ The agent opens Personal Agent Proxy to sign in. Sign in as yourself if you aren
 Personal Agent Proxy asks which of your agent logins the app works as, with the one its name points
 at chosen, such as Claude for Claude. Choose an existing login to give it that login's access, or
 a new one for a company that doesn't have a login yet, which starts with every connection's
-defaults. **Allow** sends you back to the agent, signed in.
+defaults. An app whose name points at none of them is offered a new **Custom MCP agent** named after
+it, which you can rename; you can have as many custom agents as you like, each with its own name.
+**Allow** sends you back to the agent, signed in.
 
 </Steps>
 
@@ -41,7 +50,7 @@ agent's next request.
 
 ## What the agent sees
 
-The server has four tools, the same for every login, so the agent's list of tools never goes out of
+The server has five tools, the same for every login, so the agent's list of tools never goes out of
 date when access changes:
 
 | Tool               | What it does                                                                                                                                                            |
@@ -50,9 +59,19 @@ date when access changes:
 | `list_tools`       | A connection's own tools, such as `emails_list` or `emails_archive`, each with what it does and the JSON Schema of its params. Only the tools the login has are listed. |
 | `read`             | Runs a tool that only reads, such as listing or opening emails. Marked read-only, so an agent can let it run without asking you.                                        |
 | `run`              | Runs a tool that changes something or reaches other people, such as archiving an email or sending one.                                                                  |
+| `send_feedback`    | Tells the makers of Personal Agent Proxy about something that didn't work as the agent expected. It goes to them, not to you, and changes nothing in your accounts.     |
 
 When an agent connects, it is also told which accounts it can use, and that what an email or a
 note says is information, not instructions.
+
+## Links to what the agent read
+
+Every email, note, page, issue, event, file and contact an agent reads comes with its `url`: its
+link in the service's own app, such as Gmail, Granola, Notion, Linear, Google Calendar, Drive or
+Contacts. An agent is told to give you that link when it points you to something, never an address
+of Personal Agent Proxy's own, which only its login can open. A mailbox over IMAP, a database and
+your Information have no such page, so the agent names what it means instead, such as an email by
+its subject.
 
 A request the login isn't allowed is refused, and logged as denied. The activity log marks the
 requests that came in over MCP.
@@ -66,4 +85,5 @@ every app working as it, as well as its sign-in to the agent pages.
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
 ChatGPT and Poke to connect to it: they call it from their own servers, not from your computer.
+Hermes Agent can instead connect to one running on the same computer, including over localhost.
 </Callout>

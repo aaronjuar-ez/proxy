@@ -5,13 +5,15 @@ import {env} from './env';
 import {ownerSessionPrefix} from '../auth/owner-password-config';
 
 import {getAuthenticatedSessionDatabase} from '@proxy/db/auth';
-import {ApiErr, type ApiError, getSessionTokenFromHeader} from '@proxy/utils';
+import {ApiErr, type ApiError, type Experiment, getSessionTokenFromHeader} from '@proxy/utils';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 export type AuthenticatedApiRequest = {
 	userId: string;
 	email: string;
 	name?: string;
+	/** The experiments on for the user's organization; ask with `hasExperiment(request.user, …)`. */
+	experiments: Experiment[];
 };
 
 /** Authenticates a user from the session cookie. */
@@ -51,5 +53,6 @@ export async function authenticateApiRequest(headers: IncomingHttpHeaders): Prom
 		userId: sessionResult.value.userId,
 		email: sessionResult.value.user.email,
 		name: sessionResult.value.user.name ?? undefined,
+		experiments: sessionResult.value.experiments,
 	});
 }

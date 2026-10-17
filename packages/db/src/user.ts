@@ -34,6 +34,8 @@ export async function getUserByEmail(email: string): Promise<Result<CreatedUser 
 /**
  * Creates the user together with their personal organization, membership and the organization's
  * Information connection, in one transaction, so no user exists without them. Retries when a parallel sign-up took the slug.
+ * Every sign-up comes through the sign-in page, past its notice of the terms, so the terms count as
+ * accepted from the start.
  */
 async function createUserWithPersonalOrg(data: {
 	email: string;
@@ -47,7 +49,10 @@ async function createUserWithPersonalOrg(data: {
 	for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
 		const result = await wrapDb(() =>
 			db.$transaction(async (tx) => {
-				const user = await tx.user.create({data, select: createdUserSelect});
+				const user = await tx.user.create({
+					data: {...data, termsAcceptedAt: new Date()},
+					select: createdUserSelect,
+				});
 				const slug = await pickAvailableSlugDatabase(tx, base);
 				const org = await tx.organization.create({data: {name, slug}});
 				await tx.orgMember.create({data: {orgId: org.id, userId: user.id}});
@@ -102,12 +107,17 @@ export async function createUser(data: {
 
 /**
  * Deletes the user and their organization; the cascades take their accounts, sessions,
- * membership and the organization's connections. Organizations have one member for now, so every
+ * membership and the organization's connections, information, agents and activity. Sign-in links
+ * still waiting for their address go too. Organizations have one member for now, so every
  * organization the user belongs to is theirs alone.
  */
 export async function deleteUser(userId: string): Promise<Result<void, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
+			const user = await tx.user.findUnique({where: {id: userId}, select: {email: true}});
+			if (user) {
+				await tx.verificationToken.deleteMany({where: {identifier: user.email}});
+			}
 			// By id: Prisma cascades to the memberships first, so filtering the delete itself by
 			// membership would match nothing.
 			const orgs = await tx.organization.findMany({

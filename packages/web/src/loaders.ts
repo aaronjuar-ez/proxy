@@ -1,14 +1,39 @@
-import {getAgent, listActivity, listAgents, listMcpClients} from '@/client/agents-client';
+import {getSignInMethods} from '@/client/auth-client';
+import {
+	type ActivityFilter,
+	getActivitySummary,
+	getAgent,
+	listActivity,
+	listAgents,
+	listMcpClients,
+} from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getMe} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {listRecords} from '@/client/records-client';
 import {INFO_INTEGRATION_ID} from '@proxy/integrations';
+import {browserTimeZone, daySpan} from '@/lib/activity-graph';
 import {findIntegration} from '@/lib/integrations';
 import {unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
 import {redirect} from 'react-router';
 
 // The human side's pages, each loaded from the api on arrival and again after every change.
+
+// Home: what is connected, for the logos under its input, and what was done, for the graph under
+// them. The page works without them, so a list the api doesn't answer shows as empty, and a graph
+// it doesn't as none, rather than as an error.
+export async function homeLoader() {
+	const [connections, agents, activity] = await Promise.all([
+		listConnections(),
+		listAgents(),
+		getActivitySummary(browserTimeZone()),
+	]);
+	return {
+		connections: connections.map((answer) => answer.connections).unwrapOr([]),
+		agents: agents.map((answer) => answer.agents).unwrapOr([]),
+		activity: activity.unwrapOr(null),
+	};
+}
 
 export async function connectionsLoader() {
 	const [connections, agents] = await Promise.all([listConnections(), listAgents()]);
@@ -18,9 +43,15 @@ export async function connectionsLoader() {
 	};
 }
 
-// The catalog, with how many accounts of each integration are connected.
+// The catalog, with how many accounts of each integration are connected, and whether the server
+// has what each needs (`/auth/methods`); an api that doesn't answer leaves every integration on
+// offer, and a sign-in that can't start says what is missing.
 export async function addConnectionLoader() {
-	return {connections: unwrapLoaderResult(await listConnections()).connections};
+	const [connections, methods] = await Promise.all([listConnections(), getSignInMethods()]);
+	return {
+		connections: unwrapLoaderResult(connections).connections,
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
+	};
 }
 
 export async function connectionLoader({params}: {params: {id?: string}}) {
@@ -85,15 +116,18 @@ export async function agentLoader({params}: {params: {id?: string}}) {
 }
 
 export async function agentSetupLoader({params}: {params: {id?: string}}) {
-	const [agent, agents] = await Promise.all([getAgent(params.id ?? ''), listAgents()]);
-	return {agent: unwrapOrNull(agent), agents: unwrapLoaderResult(agents).agents};
+	return {agent: unwrapOrNull(await getAgent(params.id ?? ''))};
 }
 
 export async function activityLoader({request}: {request: Request}) {
 	const params = new URL(request.url).searchParams;
-	const filter = {
+	const outcome = params.get('outcome');
+	const filter: ActivityFilter = {
 		agentId: params.get('agent') ?? undefined,
 		connectionId: params.get('connection') ?? undefined,
+		outcome: outcome === 'allowed' || outcome === 'denied' ? outcome : undefined,
+		// A day of the home page's graph, on the browser's clock as the graph counts it.
+		...daySpan(params.get('day') ?? ''),
 	};
 	const [activity, connections, agents] = await Promise.all([
 		listActivity(filter),
@@ -126,15 +160,24 @@ export async function connectAgentLoader({request}: {request: Request}) {
 export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 
 // The welcome flow, shown until the organization finishes or skips it: what the person has
-// connected so far, so each step can say what is done. Once finished, the app itself.
+// connected so far, so each step can say what is done, and what the server has set up for the
+// catalog. Once finished, the app itself.
 export async function welcomeLoader() {
-	const [me, agents, connections] = await Promise.all([getMe(), listAgents(), listConnections()]);
-	if (unwrapLoaderResult(me).onboarded) {
+	const [me, agents, connections, methods] = await Promise.all([
+		getMe(),
+		listAgents(),
+		listConnections(),
+		getSignInMethods(),
+	]);
+	const {onboarded, experiments} = unwrapLoaderResult(me);
+	if (onboarded) {
 		throw redirect('/connections');
 	}
 	return {
+		experiments,
 		agents: unwrapLoaderResult(agents).agents,
 		connections: unwrapLoaderResult(connections).connections,
+		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true}),
 	};
 }
 

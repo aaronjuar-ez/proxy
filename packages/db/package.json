@@ -4,18 +4,19 @@
 	"version": "0.0.0",
 	"type": "module",
 	"exports": {
-		"./custom-mcp-oauth": "./src/custom-mcp-oauth.ts",
 		".": "./src/index.ts",
 		"./agent": "./src/agent.ts",
 		"./audit": "./src/audit.ts",
 		"./auth": "./src/auth.ts",
 		"./connection": "./src/connection.ts",
+		"./feedback": "./src/feedback.ts",
 		"./info": "./src/info.ts",
 		"./instance-meta": "./src/instance-meta.ts",
 		"./oauth": "./src/oauth.ts",
 		"./organization": "./src/organization.ts",
 		"./user": "./src/user.ts",
-		"./owner-auth": "./src/owner-auth.ts"
+		"./owner-auth": "./src/owner-auth.ts",
+		"./write-target": "./src/write-target.ts"
 	},
 	"scripts": {
 		"test": "bun test",

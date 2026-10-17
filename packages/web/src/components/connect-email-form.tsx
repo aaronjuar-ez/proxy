@@ -14,6 +14,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import type {Connection} from '@/lib/types';
+import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 const PROVIDER_ITEMS = EMAIL_PROVIDERS.map((provider) => ({
 	value: provider.id,
@@ -83,6 +84,7 @@ export function ConnectEmailForm({
 			: {}),
 	};
 	const passed = tested === JSON.stringify(input);
+	const form = useCommandEnterSubmit(ready && pending === null);
 
 	const test = async () => {
 		setPending('test');
@@ -98,6 +100,7 @@ export function ConnectEmailForm({
 
 	return (
 		<form
+			ref={form}
 			className="grid gap-4"
 			onSubmit={async (event) => {
 				event.preventDefault();

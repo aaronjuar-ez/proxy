@@ -125,12 +125,12 @@ describe('nested collections', () => {
 			'properties',
 			'content',
 		]);
-		expect(findTool(notion, 'pages_update')?.inputSchema.properties.parent).toBeUndefined();
+		expect(findTool(notion, 'pages_update')?.inputSchema.properties?.parent).toBeUndefined();
 	});
 
 	test('a collection that is not nested takes no parent', () => {
-		expect(findTool(email, 'emails_list')?.inputSchema.properties.parent).toBeUndefined();
-		expect(findTool(email, 'emails_create')?.inputSchema.properties.parent).toBeUndefined();
+		expect(findTool(email, 'emails_list')?.inputSchema.properties?.parent).toBeUndefined();
+		expect(findTool(email, 'emails_create')?.inputSchema.properties?.parent).toBeUndefined();
 	});
 });
 
@@ -154,7 +154,189 @@ describe('linear', () => {
 			'statusType',
 			'page',
 		]);
-		expect(list?.inputSchema.properties.statusType?.enum).toContain('Started');
-		expect(findTool(linear, 'issues_create')?.inputSchema.properties.statusType).toBeUndefined();
+		expect(list?.inputSchema.properties?.statusType?.enum).toContain('Started');
+		expect(findTool(linear, 'issues_create')?.inputSchema.properties?.statusType).toBeUndefined();
+	});
+});
+
+describe('postgres and mysql', () => {
+	const postgres = integration('postgres');
+
+	test('tables are a tree of rows, and a query only ever runs', () => {
+		expect(integrationTools(postgres).map((tool) => tool.name)).toEqual([
+			'tables_list',
+			'tables_get',
+			'tables_create',
+			'tables_update',
+			'tables_delete',
+			'queries_run',
+		]);
+		expect(integrationTools(integration('mysql')).map((tool) => tool.name)).toEqual(
+			integrationTools(postgres).map((tool) => tool.name),
+		);
+	});
+
+	test('running a query takes the SQL alone and counts as a read', () => {
+		const run = findTool(postgres, 'queries_run');
+		expect(run?.readOnly).toBe(true);
+		expect(run?.action).toBe('query');
+		expect(Object.keys(run?.inputSchema.properties ?? {})).toEqual(['sql']);
+		expect(findTool(postgres, 'tables_list')?.readOnly).toBe(true);
+		expect(findTool(postgres, 'tables_create')?.readOnly).toBe(false);
+	});
+
+	test('a row is written as its values, inside a table, and only rows are edited', () => {
+		const create = findTool(postgres, 'tables_create');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual(['parent', 'values']);
+		const update = findTool(postgres, 'tables_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'kind',
+			values: ['Row'],
+		});
+	});
+});
+
+describe('google', () => {
+	const google = integration('google');
+
+	test('email has the same tools as any mailbox’s, files are never deleted, only moved to Trash, ranges are only run, and events and contacts are never deleted', () => {
+		expect(integrationTools(google).map((tool) => tool.name)).toEqual([
+			...integrationTools(email).map((tool) => tool.name),
+			'events_list',
+			'events_get',
+			'events_create',
+			'events_update',
+			'events_accept',
+			'events_decline',
+			'events_maybe',
+			'files_list',
+			'files_get',
+			'files_create',
+			'files_update',
+			'files_trash',
+			'ranges_read',
+			'ranges_write',
+			'contacts_list',
+			'contacts_get',
+			'contacts_create',
+			'contacts_update',
+		]);
+	});
+
+	test('an event is made inside a calendar, its guests need Invite guests, and only events are edited', () => {
+		const create = findTool(google, 'events_create');
+
+		expect(create?.action).toBe('writeEvents');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'title',
+			'start',
+			'end',
+			'location',
+			'guests',
+			'description',
+		]);
+		expect(create?.inputSchema.properties?.guests?.description).toContain('Invite guests');
+		const update = findTool(google, 'events_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'kind',
+			values: ['Event'],
+		});
+		expect(findTool(google, 'events_list')?.description).toContain('soonest first');
+		expect(findTool(google, 'events_accept')).toMatchObject({
+			action: 'respondEvents',
+			reachesOthers: true,
+			where: {field: 'response', values: ['Needs action', 'Accepted', 'Declined', 'Maybe']},
+		});
+	});
+
+	test('a file is made from its kind, name and content, inside the folder given, and trashing leaves out tabs and rows', () => {
+		const create = findTool(google, 'files_create');
+
+		expect(create?.action).toBe('createFiles');
+		expect(Object.keys(create?.inputSchema.properties ?? {})).toEqual([
+			'parent',
+			'name',
+			'kind',
+			'content',
+		]);
+		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
+		const update = findTool(google, 'files_update');
+		expect(update?.kind === 'update' ? update.where?.values : null).not.toContain('Place');
+		expect(findTool(google, 'files_trash')).toMatchObject({
+			action: 'trashFiles',
+			risk: 'high',
+			where: {field: 'kind', values: ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'File']},
+		});
+	});
+
+	test('reading a range is a read, writing one needs Edit files', () => {
+		expect(findTool(google, 'ranges_read')).toMatchObject({
+			action: 'readFiles',
+			readOnly: true,
+			kind: 'newCommand',
+		});
+		expect(findTool(google, 'ranges_write')).toMatchObject({action: 'editFiles', readOnly: false});
+		expect(Object.keys(findTool(google, 'ranges_write')?.inputSchema.properties ?? {})).toEqual([
+			'spreadsheet',
+			'range',
+			'values',
+		]);
+	});
+
+	test('email’s tools need the Gmail actions, and a list takes its folders and Gmail’s search', () => {
+		const list = findTool(google, 'emails_list');
+
+		expect(list?.action).toBe('readEmails');
+		expect(list?.inputSchema.properties?.folder?.enum).toEqual([
+			'Inbox',
+			'Draft',
+			'Sent',
+			'Archive',
+			'Trash',
+			'Spam',
+		]);
+		expect(list?.inputSchema.properties?.search?.description).toContain('Gmail');
+		expect(findTool(google, 'emails_flag')).toMatchObject({
+			action: 'flagEmails',
+			description: expect.stringMatching(/^Star:/),
+		});
+		expect(findTool(google, 'emails_send_new')).toMatchObject({
+			action: 'sendEmails',
+			risk: 'high',
+			reachesOthers: true,
+		});
+		expect(findTool(google, 'emails_trash')).toMatchObject({
+			action: 'trashEmails',
+			risk: 'high',
+			where: {field: 'folder', values: ['Inbox']},
+		});
+		const update = findTool(google, 'emails_update');
+		expect(update?.kind === 'update' ? update.where : null).toEqual({
+			field: 'folder',
+			values: ['Draft'],
+		});
+	});
+
+	test('Gmail’s lists and opens say each email has its link in Gmail; a mailbox’s have none', () => {
+		expect(findTool(google, 'emails_list')?.description).toContain(
+			'and its url, its link in Gmail for the person.',
+		);
+		expect(findTool(google, 'emails_get')?.description).toBe(
+			'Open one email by its id, with every field, and its url, its link in Gmail for the person.',
+		);
+		expect(findTool(email, 'emails_list')?.description).not.toContain('url');
+		expect(findTool(email, 'emails_get')?.description).toBe(
+			'Open one email by its id, with every field.',
+		);
+	});
+
+	test('a list takes the folder to list inside and a search', () => {
+		const list = findTool(google, 'files_list');
+
+		expect(Object.keys(list?.inputSchema.properties ?? {})).toEqual(['parent', 'search', 'page']);
+		expect(list?.description).toContain('hasChildren');
+		expect(list?.action).toBe('readFiles');
+		expect(list?.readOnly).toBe(true);
 	});
 });

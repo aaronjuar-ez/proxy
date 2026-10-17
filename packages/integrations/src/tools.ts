@@ -1,9 +1,17 @@
 import {requiredAction} from './access';
+import {
+	mcpToolReadsOnly,
+	mcpToolRisk,
+	mcpToolTitle,
+	type McpInputSchema,
+	type McpTool,
+} from './mcp-tools';
 import type {Action, Collection, Condition, Field, Integration} from './types';
 
 // What an agent can do with a connection, as tools: listing and opening each collection's
 // records, writing them, and each command, generated from the catalog. The agent side's pages and
-// the MCP server both run them, so the catalog is all an integration needs to describe.
+// the MCP server both run them, so the catalog is all an integration needs to describe. A custom
+// MCP server's tools are passed on as they are, each a tool of its own (`call`).
 
 // Every input is text: a select's options are its enum.
 export type JsonSchemaProperty = {
@@ -21,19 +29,20 @@ export type JsonSchemaObject = {
 };
 
 // What a tool does with its collection: lists it, opens one record, writes one, or runs one of
-// its commands on a record (`command`) or on values typed in (`newCommand`).
-export type ToolKind = 'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand';
+// its commands on a record (`command`) or on values typed in (`newCommand`); or, for a custom MCP
+// server, calls one of the server's own tools (`call`).
+export type ToolKind =
+	'list' | 'get' | 'create' | 'update' | 'delete' | 'command' | 'newCommand' | 'call';
 
-export type Tool = {
-	// The collection and what it does, unique within an integration: `emails_archive`.
+type ToolBase = {
+	// The collection and what it does, unique within an integration: `emails_archive`; a custom
+	// server's tool keeps its own name.
 	name: string;
 	// "Archive", "List Email".
 	title: string;
 	description: string;
-	collectionId: string;
-	kind: ToolKind;
 	// What the activity log calls it, and what `requiredAction` takes: list, view, create, update,
-	// delete, or the command's id.
+	// delete, or the command's id; a custom server's tool its name.
 	operation: string;
 	// The integration's action it needs.
 	action: string;
@@ -41,10 +50,21 @@ export type Tool = {
 	readOnly: boolean;
 	risk: Action['risk'];
 	reachesOthers: boolean;
+};
+
+/** A tool generated from the catalog: one of a collection's lists, opens, writes or commands. */
+export type CollectionTool = ToolBase & {
+	collectionId: string;
+	kind: Exclude<ToolKind, 'call'>;
 	// The records it applies to, when not every one: only drafts are edited or sent.
 	where?: Condition;
 	inputSchema: JsonSchemaObject;
 };
+
+/** A custom MCP server's own tool, its params as the server describes them. */
+export type ServerTool = ToolBase & {kind: 'call'; inputSchema: McpInputSchema};
+
+export type Tool = CollectionTool | ServerTool;
 
 const ID_PROPERTY: JsonSchemaProperty = {
 	type: 'string',
@@ -90,12 +110,24 @@ function objectSchema(
 	return {type: 'object', properties, required, additionalProperties: false};
 }
 
-// The fields a write sets: every one that is typed in rather than set by the provider.
-function valueProperties(collection: Collection): Record<string, JsonSchemaProperty> {
+// The fields a write sets: every one that is typed in rather than set by the provider, saying
+// which need an action of their own, as an event's guests need Invite guests.
+function valueProperties(
+	integration: Integration,
+	collection: Collection,
+): Record<string, JsonSchemaProperty> {
 	return Object.fromEntries(
 		collection.fields
 			.filter((field) => !field.system)
-			.map((field) => [field.key, fieldProperty(field)]),
+			.map((field) => {
+				const property = fieldProperty(field);
+				const needed = integration.actions.find((action) => action.id === field.action);
+				if (!needed) {
+					return [field.key, property];
+				}
+				const description = `${property.description}. Only with ${needed.label}, as is changing a ${collection.singular} where it holds anything`;
+				return [field.key, {...property, description}];
+			}),
 	);
 }
 
@@ -144,26 +176,37 @@ function listSchema(collection: Collection): JsonSchemaObject {
 	return objectSchema(properties);
 }
 
+// ", and its url, its link in Gmail for the person": what a record says beside its fields, where
+// its records have an address of their own.
+function urlText(collection: Collection): string {
+	return collection.openIn ? `, and its url, its link in ${collection.openIn} for the person` : '';
+}
+
 function listDescription(collection: Collection): string {
 	const search = collection.searchHint ? ' Can be searched.' : '';
 	const nested = collection.nested
 		? ` ${collection.name} hold others: one with hasChildren lists what is inside it as parent, and the list says where it is in trail.`
 		: '';
-	return `List ${collection.name.toLowerCase()}, newest first, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}.${search}${nested}`;
+	const order = collection.upcoming ? 'from now on, soonest first' : 'newest first';
+	return `List ${collection.name.toLowerCase()}, ${order}, a page at a time, with each record’s id for ${toolName(collection.id, 'view')}${urlText(collection)}.${search}${nested}`;
 }
 
-function collectionTools(integration: Integration, collection: Collection): Tool[] {
+function collectionTools(integration: Integration, collection: Collection): CollectionTool[] {
 	const make = (
-		kind: ToolKind,
+		kind: CollectionTool['kind'],
 		operation: string,
-		rest: Pick<Tool, 'title' | 'description' | 'inputSchema'> & {where?: Condition},
-	): Tool[] => {
+		rest: Pick<CollectionTool, 'title' | 'description' | 'inputSchema'> & {
+			where?: Condition;
+			readOnly?: true;
+		},
+	): CollectionTool[] => {
 		const action = requiredAction(collection, operation);
 		const found = integration.actions.find((candidate) => candidate.id === action);
 		if (!action || !found) {
 			return [];
 		}
-		const readOnly = kind === 'list' || kind === 'get';
+		const {readOnly: commandReadOnly, ...tool} = rest;
+		const readOnly = kind === 'list' || kind === 'get' || commandReadOnly === true;
 		return [
 			{
 				name: toolName(collection.id, operation),
@@ -174,7 +217,7 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 				readOnly,
 				risk: found.risk,
 				reachesOthers: found.reachesOthers ?? false,
-				...rest,
+				...tool,
 			},
 		];
 	};
@@ -189,7 +232,7 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 		}),
 		...make('get', 'view', {
 			title: `Open ${collection.singular}`,
-			description: `Open one ${collection.singular} by its id, with every field.`,
+			description: `Open one ${collection.singular} by its id, with every field${urlText(collection)}.`,
 			inputSchema: objectSchema({id: ID_PROPERTY}, ['id']),
 		}),
 		...(writes.create
@@ -198,7 +241,7 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 					description: `${createLabel}: a new ${collection.singular} from the fields given; any left out are empty.`,
 					inputSchema: objectSchema({
 						...parentProperty(collection, 'to make it inside'),
-						...valueProperties(collection),
+						...valueProperties(integration, collection),
 					}),
 				})
 			: []),
@@ -206,7 +249,10 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 			? make('update', 'update', {
 					title: `Edit ${collection.singular}`,
 					description: `Edit a ${collection.singular}: only the fields given change.${conditionText(collection, collection.editable)}`,
-					inputSchema: objectSchema({id: ID_PROPERTY, ...valueProperties(collection)}, ['id']),
+					inputSchema: objectSchema(
+						{id: ID_PROPERTY, ...valueProperties(integration, collection)},
+						['id'],
+					),
 					where: collection.editable,
 				})
 			: []),
@@ -225,7 +271,8 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 				return make('newCommand', command.id, {
 					title: command.label,
 					description: `${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
-					inputSchema: objectSchema(valueProperties(collection)),
+					inputSchema: objectSchema(valueProperties(integration, collection)),
+					readOnly: command.readOnly,
 				});
 			}
 			return make('command', command.id, {
@@ -238,8 +285,27 @@ function collectionTools(integration: Integration, collection: Collection): Tool
 	];
 }
 
+// A custom server's tools, each needing the action of its own name, and read-only where it says so.
+function serverTools(tools: McpTool[]): ServerTool[] {
+	return tools.map((tool) => ({
+		name: tool.name,
+		title: mcpToolTitle(tool),
+		description: tool.description ?? '',
+		kind: 'call',
+		operation: tool.name,
+		action: tool.name,
+		readOnly: mcpToolReadsOnly(tool),
+		risk: mcpToolRisk(tool),
+		reachesOthers: tool.annotations?.openWorldHint === true,
+		inputSchema: tool.inputSchema,
+	}));
+}
+
 /** Every tool of an integration, whatever an agent may do. */
 export function integrationTools(integration: Integration): Tool[] {
+	if (integration.mcpTools) {
+		return serverTools(integration.mcpTools);
+	}
 	return integration.collections.flatMap((collection) => collectionTools(integration, collection));
 }
 

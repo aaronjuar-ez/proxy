@@ -27,12 +27,12 @@ their full private context or silently expanding what an agent may do.
   <a href="https://app.personalagentproxy.com">Or use our hosted instance →</a>
 </h3>
 
-## Custom remote MCP servers
+## Single-owner deployments
 
-This fork also supports public HTTPS MCP servers with encrypted bearer authentication,
-schema-preserving tool calls, and explicit per-agent permissions. See
-[custom MCP setup and limitations](docs/custom-mcp.md) and
-[Docker + Neon hosting research](docs/custom-mcp-hosting.md).
+This fork adds an owner-only password sign-in (`AUTH_MODE=single-owner-password`), see
+[owner password login](docs/owner-password-login.md), and a Vercel container deployment, see
+[Docker + Neon hosting](docs/custom-mcp-hosting.md). Custom MCP servers use the upstream
+integration.
 
 ## Designed to work across
 
@@ -69,7 +69,8 @@ schema-preserving tool calls, and explicit per-agent permissions. See
       <strong>ChatGPT</strong>
     </td>
     <td align="center" width="25%">
-      <strong>And&nbsp;More</strong>
+      <img src="docs/assets/agents/hermes-readme.svg" width="48" height="48" alt="Hermes Agent logo"><br>
+      <strong>Hermes&nbsp;Agent</strong>
     </td>
   </tr>
 </table>

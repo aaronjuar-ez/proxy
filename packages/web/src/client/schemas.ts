@@ -1,22 +1,7 @@
+import {mcpToolSchema} from '@proxy/integrations';
 import {z} from 'zod';
 
 // The api's response shapes, shared by the human side's and the agent side's clients.
-
-export const customMcpToolSchema = z.object({
-	name: z.string(),
-	title: z.string().optional(),
-	description: z.string().optional(),
-	actionId: z.string(),
-	inputSchema: z.record(z.string(), z.json()),
-	outputSchema: z.record(z.string(), z.json()).optional(),
-	annotations: z.record(z.string(), z.json()).optional(),
-});
-export const customMcpSchema = z.object({
-	url: z.string(),
-	tools: z.array(customMcpToolSchema),
-	authType: z.enum(['none', 'bearer', 'oauth']),
-	oauth: z.object({issuer: z.string(), clientId: z.string()}).optional(),
-});
 
 export const connectionSchema = z.object({
 	id: z.string(),
@@ -24,7 +9,12 @@ export const connectionSchema = z.object({
 	account: z.string(),
 	// The actions agents get by default.
 	defaults: z.array(z.string()),
-	customMcp: customMcpSchema.optional(),
+	// A custom MCP server's tools, what its actions are; null for every other integration.
+	tools: z.array(mcpToolSchema).nullable(),
+	// What the person called the connection, where they named it; null for every other integration.
+	name: z.string().nullable(),
+	// The actions the connection's sign-in didn't cover: no agent gets them until it is signed in again.
+	unavailable: z.array(z.string()),
 });
 
 export const agentSchema = z.object({
@@ -43,6 +33,8 @@ export const dataRecordSchema = z.object({
 	id: z.string(),
 	values: z.record(z.string(), z.string()),
 	updatedAt: z.string(),
+	// Where the person sees it in the provider's own app, as Gmail shows it, where it has one.
+	url: z.string().optional(),
 	// In a nested collection, whether it holds records of its own to list.
 	hasChildren: z.boolean().optional(),
 });
@@ -50,7 +42,8 @@ export const dataRecordSchema = z.object({
 export const auditEntrySchema = z.object({
 	id: z.string(),
 	at: z.string(),
-	agentId: z.string(),
+	// None for what Personal Agent Proxy did itself, as the home page's widgets write.
+	agentId: z.string().nullable(),
 	connectionId: z.string(),
 	collectionId: z.string(),
 	action: z.string(),
@@ -60,3 +53,30 @@ export const auditEntrySchema = z.object({
 	// The web app's agent pages, or the MCP server.
 	via: z.enum(['web', 'mcp']),
 });
+
+export const activitySummarySchema = z.object({
+	// Today on the browser's clock, `2026-10-16`.
+	today: z.string(),
+	// Each agent's requests each day, days without any left out; a null agent is Personal Agent
+	// Proxy's own.
+	days: z.array(
+		z.object({
+			day: z.string(),
+			agentId: z.string().nullable(),
+			count: z.number(),
+			denied: z.number(),
+		}),
+	),
+	// The past week's requests by action, the most first.
+	week: z.array(
+		z.object({
+			connectionId: z.string(),
+			collectionId: z.string(),
+			action: z.string(),
+			outcome: z.enum(['allowed', 'denied']),
+			count: z.number(),
+		}),
+	),
+});
+
+export type ActivitySummary = z.infer<typeof activitySummarySchema>;

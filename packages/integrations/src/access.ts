@@ -9,19 +9,25 @@ export type OwnSettings = Partial<Record<string, boolean>>;
 
 /**
  * What an agent can do with a connection: its own setting for each action, else the default as it
- * is now, leaving out an action whose required one is off, as Archive is without Read.
+ * is now, leaving out an action whose required one is off, as Archive is without Read, or counts
+ * for nothing itself, as Invite guests does once Read events is off under Create and edit events,
+ * and the `unavailable` ones the connection's sign-in didn't cover, whatever is ticked.
  */
 export function effectiveActions(
 	integration: Integration,
 	defaults: string[],
 	own: OwnSettings = {},
+	unavailable: string[] = [],
 ): string[] {
-	const chosen = integration.actions.filter(
-		(action) => own[action.id] ?? defaults.includes(action.id),
-	);
-	return chosen
-		.filter((action) => !action.requires || chosen.some((other) => other.id === action.requires))
-		.map((action) => action.id);
+	const chosen = (id: string) => !unavailable.includes(id) && (own[id] ?? defaults.includes(id));
+	const counts = (id: string, seen: string[]): boolean => {
+		const action = integration.actions.find((candidate) => candidate.id === id);
+		if (!action || !chosen(id) || seen.includes(id)) {
+			return false;
+		}
+		return !action.requires || counts(action.requires, [...seen, id]);
+	};
+	return integration.actions.filter((action) => counts(action.id, [])).map((action) => action.id);
 }
 
 /**
@@ -30,7 +36,7 @@ export function effectiveActions(
  */
 export function requiredAction(collection: Collection, request: string): string | null {
 	if (request === 'list' || request === 'view') {
-		return collection.read;
+		return collection.read ?? null;
 	}
 
 	if (request === 'create' || request === 'update' || request === 'delete') {

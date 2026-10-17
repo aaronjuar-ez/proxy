@@ -1,10 +1,8 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Err, Ok} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr} from '@proxy/utils';
-
-mock.module('../utils/secret-crypto', () => ({decryptSecret: mock(), encryptSecret: mock()}));
-import {findIntegration, type Integration} from '@proxy/integrations';
+import {ApiErr, type ApiError} from '@proxy/utils';
+import {findIntegration, integrationFor, type Integration} from '@proxy/integrations';
 
 const getAgent = mock();
 
@@ -14,13 +12,23 @@ const logAgentRequest = mock();
 
 mock.module('@proxy/db/audit', () => ({logAgentRequest}));
 
-const listConnections = mock();
+const listConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnections, getConnectionWithCredential: mock()}));
+mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+
+// Readable stand-ins for encryption, so a test can write the credential it means.
+mock.module('../utils/secret-crypto', () => ({
+	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
+	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
+}));
 
 const loadConnection = mock();
 
 mock.module('../records/target', () => ({loadConnection}));
+
+const callCustomTool = mock();
+
+mock.module('../connections/custom/custom-mcp', () => ({callCustomTool}));
 
 function integration(id: string): Integration {
 	const found = findIntegration(id);
@@ -30,18 +38,30 @@ function integration(id: string): Integration {
 	return found;
 }
 
-const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots'};
+const signedIn = {agentId: 'agent-1', orgId: 'org-1', providerId: 'dot', name: 'Dots', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const};
 
-const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), defaults: [{actionId: 'readAddresses'}], credential: null};
-const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
+const infoConnection = {id: 'info-1', integrationId: 'info', account: "Alex's Workspace", createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'readAddresses'}], credential: null};
+const emailConnection = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [{actionId: 'read'}], credential: 'v1.x.y.z'};
 const notionConnection = {
 	id: 'notion-1',
 	integrationId: 'notion',
 	account: 'alex@example.com · Acme',
 	createdAt: new Date(),
+	tools: null,
+	name: null,
 	defaults: [{actionId: 'read'}, {actionId: 'create'}],
 	credential: 'v1.x.y.z',
+};
+
+// Read files is on by default, but the person unticked Drive on Google's consent screen.
+const googleConnection = {
+	id: 'google-1',
+	integrationId: 'google',
+	account: 'alex@example.com',
+	createdAt: new Date(),
+	defaults: [{actionId: 'readFiles'}],
+	credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'], email: 'alex@example.com'})}`,
 };
 
 // Reads cards of its own, and doesn't read the mailbox.
@@ -70,7 +90,7 @@ const send = mock();
 const sendNew = mock();
 const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew}};
 
-function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection) {
+function useConnection(connection: typeof infoConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId), connector}));
 }
 
@@ -78,7 +98,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	getAgent.mockResolvedValue(Ok(agent));
 	logAgentRequest.mockResolvedValue(Ok(undefined));
-	listConnections.mockResolvedValue(Ok([infoConnection, emailConnection]));
+	listConnectionsWithCredential.mockResolvedValue(Ok([infoConnection, emailConnection, googleConnection]));
 	connector.list.mockResolvedValue(Ok({records: [card], nextPage: null}));
 	connector.get.mockResolvedValue(Ok(card));
 	useConnection(infoConnection);
@@ -91,8 +111,49 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards']}],
+			connections: [{id: 'info-1', integrationId: 'info', account: "Alex's Workspace", actions: ['readAddresses', 'readCards'], tools: null, name: null}],
 		});
+	});
+});
+
+describe("actions the connection's sign-in didn't cover", () => {
+	test('are not among what the agent can do, whatever is ticked', async () => {
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: true}]}));
+
+		const {listAgentConnections} = await import('./tools');
+		const result = await listAgentConnections(signedIn);
+
+		expect(result.unwrap().connections.map((connection) => connection.id)).toEqual(['info-1', 'mail-1']);
+	});
+
+	test('offer no tools', async () => {
+		useConnection(googleConnection);
+
+		const {listAgentTools} = await import('./tools');
+		const result = await listAgentTools(signedIn, 'google-1');
+
+		expect(result.unwrap()).toEqual([]);
+	});
+
+	test('running one is refused, saying how to allow it, and logged as denied', async () => {
+		useConnection(googleConnection);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'files_list', {search: 'budget'});
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
+		expect(connector.list).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({connectionId: 'google-1', collectionId: 'files', action: 'list', query: 'budget', outcome: 'denied'});
+	});
+
+	test("one the agent's own setting turns off anyway is plainly forbidden", async () => {
+		getAgent.mockResolvedValue(Ok({...agent, grants: [{connectionId: 'google-1', actionId: 'readFiles', allowed: false}]}));
+		useConnection(googleConnection);
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'files_list', {});
+
+		expect(result.unwrapErr().kind).toBe('forbidden');
 	});
 });
 
@@ -208,7 +269,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
 
 		expect(result.isOk()).toBe(true);
-		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', subject: 'Re: Q4 planning', body: 'Draft body'}]);
+		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'update', recordTitle: 'Re: Q4 planning'});
 	});
 
@@ -326,5 +387,146 @@ describe('nested collections', () => {
 		expect(created.unwrapErr().kind).toBe('validation_error');
 		expect(connector.list).not.toHaveBeenCalled();
 		expect(connector.create).not.toHaveBeenCalled();
+	});
+});
+
+// An event's guests are told of what is done to it, so they need Invite guests beyond the write.
+describe('a field that needs an action of its own', () => {
+	const calendarScopes = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
+	const calendarConnection = {
+		...googleConnection,
+		defaults: [{actionId: 'readEvents'}, {actionId: 'writeEvents'}],
+		credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: calendarScopes, email: 'alex@example.com'})}`,
+	};
+	const alone = {
+		id: 'alex@example.com:ev1',
+		values: {title: 'Focus', kind: 'Event', start: '2026-10-15T09:00:00+02:00', end: '2026-10-15T11:00:00+02:00', guests: ''},
+		updatedAt: '2026-10-01T00:00:00.000Z',
+	};
+	const meeting = {...alone, id: 'alex@example.com:ev2', values: {...alone.values, title: 'Q4 planning', guests: 'sam@example.com'}};
+	const inviting = {...agent, grants: [{connectionId: 'google-1', actionId: 'inviteGuests', allowed: true}]};
+
+	beforeEach(() => {
+		useConnection(calendarConnection);
+		connector.create.mockResolvedValue(Ok(meeting));
+		connector.update.mockResolvedValue(Ok(meeting));
+	});
+
+	test('an event without guests is made and edited with the write alone', async () => {
+		connector.get.mockResolvedValue(Ok(alone));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Focus', start: '2026-10-15T09:00'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: alone.id, title: 'Deep work'});
+
+		expect(created.isOk()).toBe(true);
+		expect(updated.isOk()).toBe(true);
+	});
+
+	test('inviting guests, or changing an event that has them, is refused without Invite guests and logged as denied', async () => {
+		connector.get.mockResolvedValue(Ok(meeting));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: meeting.id, title: 'Q4 planning, moved'});
+
+		expect(created.unwrapErr().kind).toBe('forbidden');
+		expect(updated.unwrapErr().kind).toBe('forbidden');
+		expect(connector.create).not.toHaveBeenCalled();
+		expect(connector.update).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls.map(([entry]) => [entry.action, entry.recordTitle, entry.outcome])).toEqual([
+			['create', 'Q4 planning', 'denied'],
+			['update', 'Q4 planning, moved', 'denied'],
+		]);
+	});
+
+	test('with Invite guests, both go through', async () => {
+		getAgent.mockResolvedValue(Ok(inviting));
+		connector.get.mockResolvedValue(Ok(meeting));
+
+		const {runAgentTool} = await import('./tools');
+		const created = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+		const updated = await runAgentTool(caller, 'google-1', 'events_update', {id: meeting.id, guests: 'sam@example.com, lee@example.com'});
+
+		expect(created.isOk()).toBe(true);
+		expect(updated.isOk()).toBe(true);
+	});
+
+	test("without Calendar's scopes, Invite guests is refused saying to sign in again", async () => {
+		useConnection({...calendarConnection, credential: googleConnection.credential});
+		getAgent.mockResolvedValue(Ok(inviting));
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'google-1', 'events_create', {title: 'Q4 planning', start: '2026-10-15T09:00', guests: 'sam@example.com'});
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Create and edit events at sign-in. Sign in to Google again to allow it."});
+	});
+});
+
+// A custom MCP server's tools, called as they are: by the tool's name, with its params as given.
+describe('custom MCP servers', () => {
+	const search = {name: 'search_docs', title: 'Search docs', inputSchema: {type: 'object', properties: {query: {type: 'string'}}}, annotations: {readOnlyHint: true}};
+	const publish = {name: 'publish_doc', inputSchema: {type: 'object', properties: {id: {type: 'string'}}}};
+	const customConnection = {
+		id: 'mcp-1',
+		integrationId: 'mcp',
+		account: 'mcp.example.com/mcp',
+		createdAt: new Date(),
+		tools: JSON.stringify([search, publish]),
+		name: null,
+		defaults: [{actionId: 'search_docs'}],
+		credential: 'v1.x.y.z',
+	};
+
+	beforeEach(() => {
+		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]}), connector: null}));
+		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
+		callCustomTool.mockResolvedValue(Ok('3 results'));
+	});
+
+	test('lists the connection with the tools the agent may run as its actions, and only those tools', async () => {
+		const {listAgentConnections, listAgentTools} = await import('./tools');
+
+		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', actions: ['search_docs'], tools: [search], name: null},
+		]);
+		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
+	});
+
+	test('runs a tool the agent may run with its params as given, and logs it by name with them', async () => {
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'invoices', limit: 3}, {readOnly: true});
+
+		expect(result.unwrap()).toEqual({text: '3 results'});
+		expect(callCustomTool).toHaveBeenCalledWith(customConnection, 'search_docs', {query: 'invoices', limit: 3});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({
+			connectionId: 'mcp-1',
+			collectionId: 'tools',
+			action: 'search_docs',
+			recordTitle: null,
+			query: '{"query":"invoices","limit":3}',
+			outcome: 'allowed',
+			via: 'mcp',
+		});
+	});
+
+	test('a tool the agent may not run is refused and logged as denied; a tool that changes something is not run with read', async () => {
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {id: 'doc-1'})).unwrapErr().kind).toBe('forbidden');
+		expect(callCustomTool).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'publish_doc', query: '{"id":"doc-1"}', outcome: 'denied'});
+
+		expect((await runAgentTool(caller, 'mcp-1', 'publish_doc', {}, {readOnly: true})).unwrapErr().kind).toBe('validation_error');
+		expect((await runAgentTool(caller, 'mcp-1', 'search_docs', 'invoices')).unwrapErr().kind).toBe('validation_error');
+		expect(logAgentRequest).toHaveBeenCalledTimes(1);
+	});
+
+	test('what the tool answered with is passed on, and a tool that failed is what the server said', async () => {
+		callCustomTool.mockResolvedValue(Err(ApiErr.validationError('query is required')));
+		const {runAgentTool} = await import('./tools');
+		const failed = (await runAgentTool(caller, 'mcp-1', 'search_docs', {})).unwrapErr();
+
+		expect(failed).toEqual(ApiErr.validationError('query is required'));
+		expect(logAgentRequest).not.toHaveBeenCalled();
 	});
 });

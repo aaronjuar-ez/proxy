@@ -1,17 +1,18 @@
 import {useLoaderData, useNavigate, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {BackButton} from '@/components/back-button';
-import {IntegrationCatalog} from '@/components/integration-catalog';
-import {signInFailedMessage} from '@/lib/integrations';
+import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
+import {useExperiments} from '@/hooks/use-experiment';
 import type {addConnectionLoader} from '@/loaders';
 
-// The catalog: a plus per integration, with how many accounts of it are connected. A mailbox goes
-// to its form; a sign-in starts at the api. Either lands on the new connection's page.
+// The catalog: a plus per integration, with how many accounts of it are connected. A mailbox, a
+// database or a custom MCP server goes to its form; a sign-in starts at the api. Each lands on the
+// new connection's page.
 export function AddConnectionPage() {
-	const {connections} = useLoaderData<typeof addConnectionLoader>();
+	const {connections, configured} = useLoaderData<typeof addConnectionLoader>();
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
-	const failed = signInFailedMessage(params.get('error'));
+	const experiments = useExperiments();
 
 	return (
 		<AppShell
@@ -22,11 +23,12 @@ export function AddConnectionPage() {
 				</>
 			}
 		>
-			{failed && <p className="mb-4 text-sm text-destructive md:px-3">{failed}</p>}
+			<SignInFailed error={params.get('error')} configured={configured} className="mb-4 md:px-3" />
 			<IntegrationCatalog
 				connections={connections}
-				onConnectEmail={() => navigate('/connections/new/email')}
-				onConnectCustomMcp={() => navigate('/connections/new/custom-mcp')}
+				configured={configured}
+				experiments={experiments}
+				onConnectForm={(integrationId) => navigate(`/connections/new/${integrationId}`)}
 			/>
 		</AppShell>
 	);

@@ -1,5 +1,7 @@
 import type {ConnectionRow} from '@proxy/db/connection';
-import {findIntegration} from '@proxy/integrations';
+import type {McpTool} from '@proxy/integrations';
+
+import {integrationOf} from '../utils/connection-actions';
 
 export type ConnectionResponse = {
 	id: string;
@@ -8,14 +10,27 @@ export type ConnectionResponse = {
 	// The actions an agent without a setting of its own gets, in the catalog's order. An agent's own
 	// settings live on the agent.
 	defaults: string[];
+	// A custom MCP server's tools, as the server last listed them: what its actions are. Null for
+	// every other integration.
+	tools: McpTool[] | null;
+	// What the person called the connection, where they named it; null for every other integration,
+	// which is called by its integration.
+	name: string | null;
+	// The actions the connection's sign-in didn't cover, in the catalog's order: no agent gets them
+	// until the person signs in again and allows them.
+	unavailable: string[];
 };
 
-export function toConnectionResponse(row: ConnectionRow): ConnectionResponse {
-	const actions = findIntegration(row.integrationId)?.actions ?? [];
+export function toConnectionResponse(row: ConnectionRow, unavailable: string[]): ConnectionResponse {
+	const integration = integrationOf(row);
+	const actions = integration?.actions ?? [];
 	return {
 		id: row.id,
 		integrationId: row.integrationId,
 		account: row.account,
 		defaults: actions.map((action) => action.id).filter((id) => row.defaults.some((stored) => stored.actionId === id)),
+		tools: integration?.mcpTools ?? null,
+		name: row.name,
+		unavailable,
 	};
 }

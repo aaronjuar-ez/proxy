@@ -1,4 +1,4 @@
-import {httpRequest, type FetchError} from '@proxy/utils';
+import {httpRequest, isExperiment, type FetchError} from '@proxy/utils';
 import {z} from 'zod';
 import {apiSend} from '@/client/request';
 
@@ -11,6 +11,8 @@ const meSchema = z.object({
 	}),
 	// False until the welcome flow is finished or skipped; the human side shows it until then.
 	onboarded: z.boolean(),
+	// The experiments on for the organization; read them with useExperiment.
+	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
 });
 
 export type Me = z.infer<typeof meSchema>;
@@ -33,4 +35,12 @@ export function getMe() {
 /** The welcome flow is done, or skipped: the human side opens on the app from now on. */
 export function finishOnboarding() {
 	return apiSend('POST', '/api/me/onboarded');
+}
+
+/**
+ * Deletes the account: every connection is undone at its provider, then the user and everything
+ * in their organization; the session goes with it.
+ */
+export function deleteAccount() {
+	return apiSend('DELETE', '/api/me');
 }
