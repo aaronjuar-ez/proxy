@@ -9,16 +9,23 @@ export type ConnectionRow = {
 	integrationId: string;
 	account: string;
 	createdAt: Date;
+	// A custom MCP server's tools as JSON, the server's own list; null for every other integration.
+	tools: string | null;
+	// What the person called the connection, where they named it; null for every other integration.
+	name: string | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
 };
 
-// Never the credential: only `getConnectionWithCredential` reads it.
+// Never the credential: only `getConnectionWithCredential`, `listConnectionsWithCredential` and
+// `getConnectionCredential` read it.
 const connectionSelect = {
 	id: true,
 	integrationId: true,
 	account: true,
 	createdAt: true,
+	tools: true,
+	name: true,
 	defaults: {select: {actionId: true}},
 } as const;
 
@@ -27,6 +34,22 @@ export async function listConnections(orgId: string): Promise<Result<ConnectionR
 		db.connection.findMany({
 			where: {orgId},
 			select: connectionSelect,
+			orderBy: {createdAt: 'asc'},
+		}),
+	);
+}
+
+/**
+ * The organization's connections with their encrypted credentials, for what a sign-in covered,
+ * which the api reads from them.
+ */
+export async function listConnectionsWithCredential(
+	orgId: string,
+): Promise<Result<Array<ConnectionRow & {credential: string | null}>, ApiError>> {
+	return wrapDb(() =>
+		db.connection.findMany({
+			where: {orgId},
+			select: {...connectionSelect, credential: true},
 			orderBy: {createdAt: 'asc'},
 		}),
 	);
@@ -55,16 +78,30 @@ export async function getConnectionWithCredential(
 	);
 }
 
+/** A connection's encrypted credential as it is now, `null` once the connection is gone. */
+export async function getConnectionCredential(
+	connectionId: string,
+): Promise<Result<string | null, ApiError>> {
+	const row = await wrapDb(() =>
+		db.connection.findUnique({where: {id: connectionId}, select: {credential: true}}),
+	);
+	return row.map((found) => found?.credential ?? null);
+}
+
 /**
  * `credential` is already encrypted; this package never sees it in the clear. `defaults` are the
- * actions agents get from the start, none when left out.
+ * actions agents get from the start, none when left out; `tools` a custom MCP server's, as JSON,
+ * and `name` what the person called it.
  */
 export async function createConnection(data: {
 	orgId: string;
 	integrationId: string;
 	account: string;
+	providerAccountId?: string | null;
 	credential: string;
 	defaults?: string[];
+	tools?: string;
+	name?: string;
 }): Promise<Result<ConnectionRow, ApiError>> {
 	const {defaults = [], ...connection} = data;
 	return wrapDb(() =>
@@ -73,6 +110,53 @@ export async function createConnection(data: {
 			select: connectionSelect,
 		}),
 	);
+}
+
+/**
+ * The organization's connection of an integration for an account, signed in to again: by the
+ * provider's own id for the account where it gives one, else by its address, which is also how a
+ * connection made before ids were kept is found.
+ */
+export async function findAccountConnection(data: {
+	orgId: string;
+	integrationId: string;
+	account: string;
+	providerAccountId: string | null;
+}): Promise<Result<ConnectionRow | null, ApiError>> {
+	const {orgId, integrationId, account, providerAccountId} = data;
+	return wrapDb(async () => {
+		const byId =
+			providerAccountId === null
+				? null
+				: await db.connection.findFirst({
+						where: {orgId, integrationId, providerAccountId},
+						select: connectionSelect,
+					});
+		return (
+			byId ??
+			db.connection.findFirst({
+				where: {orgId, integrationId, account, providerAccountId: null},
+				select: connectionSelect,
+			})
+		);
+	});
+}
+
+/**
+ * Gives a connection signed in to again its new credential, and the account as the provider names
+ * it now, such as an address changed since.
+ */
+export async function renewConnection(data: {
+	connectionId: string;
+	account: string;
+	providerAccountId: string | null;
+	credential: string;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, ...renewed} = data;
+	const updated = await wrapDb(() =>
+		db.connection.update({where: {id: connectionId}, data: renewed, select: {id: true}}),
+	);
+	return updated.map(() => undefined);
 }
 
 /**
@@ -91,6 +175,59 @@ export async function updateConnectionCredential(data: {
 	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
 		({count}) => count > 0,
 	);
+}
+
+/**
+ * Replaces a custom MCP server's tools, as JSON, once the server lists them again, and drops the
+ * defaults and agents' settings for actions no longer among `actions`, the tools' names: a setting
+ * kept for a tool the server no longer lists would apply to whatever it later lists by that name.
+ */
+export async function updateConnectionTools(data: {
+	connectionId: string;
+	tools: string;
+	actions: string[];
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, tools, actions} = data;
+	return wrapDb(async () => {
+		await db.$transaction([
+			db.connection.update({where: {id: connectionId}, data: {tools}}),
+			db.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+			db.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
+		]);
+	});
+}
+
+/** Renames a connection; null is no name of its own, so it shows as its integration again. */
+export async function updateConnectionName(data: {
+	connectionId: string;
+	name: string | null;
+}): Promise<Result<void, ApiError>> {
+	const {connectionId, name} = data;
+	return wrapDb(async () => {
+		await db.connection.update({where: {id: connectionId}, data: {name}});
+	});
+}
+
+/**
+ * How many connections, in every organization, are for the same account as this one, itself
+ * included: those with the provider's id for it, or with its address, as one connected before ids
+ * were kept is known by. Zero once the connection is gone.
+ */
+export async function countSameAccountConnections(
+	connectionId: string,
+): Promise<Result<number, ApiError>> {
+	return wrapDb(async () => {
+		const connection = await db.connection.findUnique({
+			where: {id: connectionId},
+			select: {integrationId: true, account: true, providerAccountId: true},
+		});
+		if (!connection) {
+			return 0;
+		}
+		const {integrationId, account, providerAccountId} = connection;
+		const same = providerAccountId === null ? [{account}] : [{providerAccountId}, {account}];
+		return db.connection.count({where: {integrationId, OR: same}});
+	});
 }
 
 /** `Ok(false)` means no such connection in the organization. Its defaults go with it. */
@@ -126,82 +263,4 @@ export async function setConnectionDefaults(data: {
 			),
 		]);
 	});
-}
-
-/** Atomically replace a custom tool snapshot and permanently discard grants it no longer contains. */
-export async function refreshCustomMcpSnapshot(data: {
-	connectionId: string;
-	previous: string;
-	credential: string;
-	actionIds: string[];
-	/** Only a fresh, authenticated OAuth reconnect may supersede a refresh lease. */
-	reconnectOAuth?: boolean;
-}): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			const updated = await tx.connection.updateMany({
-				where: {
-					id: data.connectionId,
-					integrationId: 'custom-mcp',
-					credential: data.previous,
-					...(data.reconnectOAuth ? {} : {customMcpRefreshLeaseId: null}),
-				},
-				data: {
-					credential: data.credential,
-					...(data.reconnectOAuth
-						? {customMcpRefreshLeaseId: null, customMcpRefreshLeaseExpiresAt: null}
-						: {}),
-				},
-			});
-			if (!updated.count) return false;
-			await tx.agentGrant.deleteMany({
-				where: {connectionId: data.connectionId, actionId: {notIn: data.actionIds}},
-			});
-			return true;
-		}),
-	);
-}
-
-/** Serialize custom grant edits with snapshot refreshes, so stale approvals cannot be resurrected. */
-export async function setCustomMcpGrants(data: {
-	connectionId: string;
-	agentId: string;
-	previous: string;
-	actions: Record<string, boolean | null>;
-}): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			// This no-op update takes the same row lock as refresh, and checks its expected snapshot.
-			const locked = await tx.connection.updateMany({
-				where: {id: data.connectionId, integrationId: 'custom-mcp', credential: data.previous},
-				data: {credential: data.previous},
-			});
-			if (!locked.count) return false;
-			for (const [actionId, allowed] of Object.entries(data.actions)) {
-				if (allowed !== true) {
-					await tx.agentGrant.deleteMany({
-						where: {agentId: data.agentId, connectionId: data.connectionId, actionId},
-					});
-				} else {
-					await tx.agentGrant.upsert({
-						where: {
-							agentId_connectionId_actionId: {
-								agentId: data.agentId,
-								connectionId: data.connectionId,
-								actionId,
-							},
-						},
-						create: {
-							agentId: data.agentId,
-							connectionId: data.connectionId,
-							actionId,
-							allowed: true,
-						},
-						update: {allowed: true},
-					});
-				}
-			}
-			return true;
-		}),
-	);
 }

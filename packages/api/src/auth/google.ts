@@ -8,8 +8,10 @@ import {createOAuthAccount, getAccountByProvider} from '@proxy/db/auth';
 import {createUserFromOAuthProfile, deleteUser, getUserByEmail, getUserFromId} from '@proxy/db/user';
 import {formatFetchError, httpRequest, parseCookieHeader} from '@proxy/utils';
 
+import {plaidClient} from '../connections/plaid/plaid-client';
 import {log, serializeError} from '../observability/log';
 import {env} from '../utils/env';
+import {googleOAuthClient} from '../utils/google-oauth-client';
 import {canSignUp, establishSessionAndRedirect, queryParam, redirectToLoginError, sanitizeCallbackUrl, timingSafeEqualString, useSecureCookies} from './session';
 
 /**
@@ -45,7 +47,8 @@ type OAuthConfig = {
 };
 
 function getOAuthConfig(): OAuthConfig | null {
-	if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+	const client = googleOAuthClient();
+	if (!client) {
 		return null;
 	}
 
@@ -54,17 +57,27 @@ function getOAuthConfig(): OAuthConfig | null {
 	}
 
 	return {
-		clientId: env.GOOGLE_CLIENT_ID,
-		clientSecret: env.GOOGLE_CLIENT_SECRET,
+		...client,
 		appUrl: env.APP_URL,
 		redirectUri: `${env.APP_URL}/auth/google/callback`,
 	};
 }
 
-/** `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only those set up. */
+/**
+ * `GET /auth/methods` — the sign-in methods beside the magic link, so the login page offers only
+ * those set up, and what the server has of what integrations need (`needs`), so the catalog offers
+ * only the ones whose sign-in can start: a Google connection needs the client, as its start route
+ * checks, and a bank connected through Plaid the server's Plaid keys.
+ */
 export function handleSignInMethodsRoute(_req: Request, res: Response): void {
 	const password = env.AUTH_MODE === 'single-owner-password';
-	res.json({google: !password && getOAuthConfig() !== null, password, email: !password, dev: !password && env.NODE_ENV === 'development'});
+	res.json({
+		google: !password && getOAuthConfig() !== null,
+		password,
+		email: !password,
+		dev: !password && env.NODE_ENV === 'development',
+		needs: {google: googleOAuthClient() !== null, plaid: plaidClient() !== null},
+	});
 }
 
 const statePayloadSchema = z.object({

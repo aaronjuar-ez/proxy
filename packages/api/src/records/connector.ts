@@ -6,8 +6,12 @@ import type {Collection} from '@proxy/integrations';
 
 export type RecordValues = Record<string, string>;
 
-/** A record and, in a nested collection, whether it holds records of its own to list. */
-export type DataRecord = {id: string; values: RecordValues; updatedAt: string; hasChildren?: boolean};
+/**
+ * A record and, in a nested collection, whether it holds records of its own to list. `url` is
+ * where the person sees it in the provider's own app, as Gmail or Notion shows it, for an agent to
+ * hand them; a record without one has no page they can open.
+ */
+export type DataRecord = {id: string; values: RecordValues; updatedAt: string; url?: string; hasChildren?: boolean};
 
 /**
  * What to list: records matching `search`, with the collection's filter field at `filter` (an
@@ -49,7 +53,9 @@ export type Connector = {
 	get: (target: RecordTarget, recordId: string) => Promise<Result<DataRecord, ApiError>>;
 	// In a nested collection, inside `parent` when one is given.
 	create: (target: RecordTarget, values: RecordValues, parent: string | null) => Promise<Result<DataRecord, ApiError>>;
-	update: (target: RecordTarget, recordId: string, values: RecordValues) => Promise<Result<DataRecord, ApiError>>;
+	// `before` is the record as the caller read it, for a connector to tell what was written
+	// differently from it without reading it again.
+	update: (target: RecordTarget, recordId: string, values: RecordValues, before?: DataRecord) => Promise<Result<DataRecord, ApiError>>;
 	remove: (target: RecordTarget, recordId: string) => Promise<Result<void, ApiError>>;
 	// By the catalog's command id: the record commands, and those on values typed in.
 	commands?: Partial<Record<string, CommandRunner>>;

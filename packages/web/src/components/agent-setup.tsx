@@ -1,7 +1,7 @@
 import {findAgentProvider, type AgentProvider, type AgentProviderId} from '@proxy/integrations';
 import {CheckIcon, LoaderCircleIcon} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
-import {useRevalidator} from 'react-router';
+import {useRevalidator, useSearchParams} from 'react-router';
 import {createAgent, resetAgentPassword} from '@/client/agents-client';
 import {AgentProviderTile} from '@/components/agent-provider-tile';
 import {CopyButton} from '@/components/copy-button';
@@ -10,6 +10,7 @@ import {Button} from '@proxy/ui/components/button';
 import {cn} from '@proxy/ui/lib/utils';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
+import {useCommandEnter} from '@/hooks/use-command-enter';
 
 // How often the setup asks whether the MCP client has signed in yet.
 const POLL_MS = 3000;
@@ -26,7 +27,10 @@ type Login = {username: string; password: string};
 // adds the server and signs in, which makes its login; another is handed a login, made then and
 // there when it is chosen. The welcome flow, New agent and setting an agent up again all go
 // through here. An agent that has a login already is shown as it is, so arriving here after
-// signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone.
+// signing in from Claude says Claude is connected. With `fixed`, it is that agent's alone, and
+// `agents` that agent's login alone. The agent chosen is in the address (`?agent=claude`), so the
+// browser's back button returns to the choice. A custom MCP agent can be added any number of
+// times, so the one being added is the one that signs in while this is open.
 export function AgentSetup({
 	agents,
 	providers,
@@ -42,22 +46,50 @@ export function AgentSetup({
 }) {
 	const live = agents.filter((agent) => agent.revokedAt === null);
 	const {revalidate} = useRevalidator();
-	// The agent already set up, so arriving back here after signing in from Claude shows Claude.
-	const [chosenId, setChosenId] = useState<AgentProviderId | null>(
+	const [params, setParams] = useSearchParams();
+	// The agent already set up, so arriving back here after signing in from Claude shows Claude,
+	// until another is chosen. A custom agent could be any of several, so it isn't one.
+	const [arrival, setArrival] = useState<AgentProviderId | null>(
 		() =>
-			fixed ??
-			providers.find((provider) => live.some((agent) => agent.providerId === provider.id))?.id ??
-			null,
+			providers.find(
+				(provider) => !provider.custom && live.some((agent) => agent.providerId === provider.id),
+			)?.id ?? null,
 	);
+	// The custom agents there before, so the one added here is the one that signs in.
+	const [known] = useState(
+		() =>
+			new Set(
+				fixed
+					? []
+					: live
+							.filter((agent) => findAgentProvider(agent.providerId)?.custom)
+							.map((agent) => agent.id),
+			),
+	);
+	const chosenId = fixed ?? findAgentProvider(params.get('agent') ?? '')?.id ?? arrival;
 	const [login, setLogin] = useState<Login | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const chosen = chosenId ? findAgentProvider(chosenId) : undefined;
 	const existingFor = (provider: AgentProvider) =>
-		live.find((agent) => agent.providerId === provider.id) ?? null;
+		live.find((agent) => agent.providerId === provider.id && !known.has(agent.id)) ?? null;
+	const existing = chosen ? existingFor(chosen) : null;
+	useCommandEnter(
+		() => {
+			if (!chosen) {
+				return;
+			}
+			onContinue(existing);
+		},
+		chosen !== undefined && !pending,
+	);
 
 	const choose = async (provider: AgentProvider) => {
-		setChosenId(provider.id);
+		setArrival(null);
+		setParams((current) => {
+			current.set('agent', provider.id);
+			return current;
+		});
 		setLogin(null);
 		setError(null);
 		if (provider.connects !== 'login' || existingFor(provider) !== null) {
@@ -72,6 +104,17 @@ export function AgentSetup({
 		}
 		setLogin({username: result.value.agent.username, password: result.value.password});
 		void revalidate();
+	};
+
+	const chooseAnother = () => {
+		setArrival(null);
+		if (!params.has('agent')) {
+			return;
+		}
+		setParams((current) => {
+			current.delete('agent');
+			return current;
+		});
 	};
 
 	const reset = async (agent: AgentLogin) => {
@@ -109,11 +152,13 @@ export function AgentSetup({
 								chosen={false}
 								disabled={!usable}
 								detail={
-									existingFor(provider)
-										? 'Connected'
-										: usable
-											? undefined
-											: 'Needs a public https address'
+									provider.custom
+										? 'Any agent that speaks MCP'
+										: existingFor(provider)
+											? 'Connected'
+											: usable
+												? undefined
+												: 'Needs a public https address'
 								}
 								onChoose={() => void choose(provider)}
 							/>
@@ -124,11 +169,10 @@ export function AgentSetup({
 		);
 	}
 
-	const existing = existingFor(chosen);
 	const actions = (
 		<div className={cn('flex gap-2', fixed ? 'justify-end' : 'justify-between')}>
 			{!fixed && (
-				<Button variant="outline" disabled={pending} onClick={() => setChosenId(null)}>
+				<Button variant="outline" disabled={pending} onClick={chooseAnother}>
 					Choose another agent
 				</Button>
 			)}
@@ -138,7 +182,14 @@ export function AgentSetup({
 		</div>
 	);
 	if (chosen.connects === 'mcp') {
-		return <McpAgent provider={chosen} existing={existing} actions={actions} />;
+		return (
+			<McpAgent
+				provider={chosen}
+				name={chosen.custom && !fixed ? null : (existing?.name ?? chosen.name)}
+				existing={existing}
+				actions={actions}
+			/>
+		);
 	}
 	return (
 		<LoginAgent
@@ -154,15 +205,25 @@ export function AgentSetup({
 }
 
 // What a Personal Agent Proxy on an http address, such as a development machine, is told: only
-// an agent on this computer can reach it; the rest need it on a server with a domain.
-function NotPublicCallout() {
+// an agent on this computer can reach it; the rest need it on a server with a domain. A custom
+// agent could be either, so it is warned that the address works only for one on this computer.
+function NotPublicCallout({custom = false}: {custom?: boolean}) {
 	return (
 		<div className="grid gap-2 rounded-xl border bg-muted/50 p-4 text-sm">
-			<p>
-				Only an agent on this computer can reach Personal Agent Proxy at{' '}
-				<span className="font-mono">{window.location.origin}</span>. The others need a public https
-				address.
-			</p>
+			{custom ? (
+				<p>
+					This server address only works for an agent on this computer: Personal Agent Proxy is at{' '}
+					<span className="font-mono">{window.location.origin}</span>, which nothing elsewhere can
+					reach. An agent that runs on its company's servers, as most do, needs a public https
+					address.
+				</p>
+			) : (
+				<p>
+					Only an agent on this computer can reach Personal Agent Proxy at{' '}
+					<span className="font-mono">{window.location.origin}</span>. The others need a public
+					https address.
+				</p>
+			)}
 			<p className="text-muted-foreground">
 				For those, run Personal Agent Proxy on a server reachable from the internet, such as a VPS,
 				and give it a domain name.{' '}
@@ -191,11 +252,19 @@ function CopyLine({label, value, copyLabel}: {label: string; value: string; copy
 	);
 }
 
-// Where each MCP client keeps its connectors, as the docs describe it; Claude Code takes a command
-// instead, run in a terminal with the server's address.
-const MCP_STEPS: Record<
-	string,
-	{where: string; url?: string; command?: (serverUrl: string) => string}
+// Where each MCP client keeps its connectors, as the docs describe it; command-based clients take
+// a command to run in a terminal with the server's address instead.
+const MCP_STEPS: Partial<
+	Record<
+		AgentProviderId,
+		{
+			where: string;
+			url?: string;
+			command?: (serverUrl: string) => string;
+			afterAdd?: string;
+			authorize?: string;
+		}
+	>
 > = {
 	claude: {
 		where: 'In Claude, open Settings, then Connectors, and choose Add custom connector.',
@@ -208,6 +277,14 @@ const MCP_STEPS: Record<
 	'claude-desktop': {
 		where: 'In Claude Desktop, open Settings, then Connectors, and choose Add custom connector.',
 	},
+	hermes: {
+		where: 'Run the command above in a terminal.',
+		command: (serverUrl) =>
+			`hermes mcp add personal-agent-proxy --url '${serverUrl}' --auth oauth --connect-timeout 300`,
+		afterAdd: 'Hermes Agent opens a browser when it can, or prints a sign-in link.',
+		authorize:
+			'In the browser, sign in and choose Hermes Agent when asked which agent it works as. If Hermes Agent is on a remote host, copy the full redirect URL from the browser back into its prompt.',
+	},
 	chatgpt: {
 		where:
 			'In ChatGPT, open Settings, then Apps & Connectors, turn on Developer mode under Advanced, and create a connector.',
@@ -217,20 +294,32 @@ const MCP_STEPS: Record<
 			'On poke.com, under Integrations, add a new one: a name and the address, with the API key left empty.',
 		url: 'https://poke.com/integrations/new',
 	},
+	custom: {
+		where:
+			'In your agent, add a custom connector or remote MCP server, as it calls them, over Streamable HTTP.',
+		afterAdd:
+			'Paste the server address and add it. It signs in with OAuth, so leave any API key or token empty.',
+		authorize:
+			'Your agent opens Personal Agent Proxy to sign in. Choose Custom MCP agent and give it a name, or choose the agent it already works as.',
+	},
 };
 
 // The server's address to add, and a wait for the client to sign in: when it has, the login it
 // made is here. An MCP client reaches the server over the internet, at an https address, so a
-// server that isn't one, such as a development machine, is told to move first.
+// server that isn't one, such as a development machine, is told to move first. A custom agent
+// is "your agent" until it has a name.
 function McpAgent({
 	provider,
+	name,
 	existing,
 	actions,
 }: {
 	provider: AgentProvider;
+	name: string | null;
 	existing: AgentLogin | null;
 	actions: ReactNode;
 }) {
+	const subject = name ?? 'Your agent';
 	const serverUrl = `${window.location.origin}/mcp`;
 	const reachable = PUBLIC || provider.local;
 	const steps = MCP_STEPS[provider.id];
@@ -248,11 +337,12 @@ function McpAgent({
 
 	return (
 		<>
-			<StepHeading title={`Add Personal Agent Proxy to ${provider.name}`}>
-				{provider.name} works through Personal Agent Proxy as a connector, signed in with its own
-				login.
+			<StepHeading title={`Add Personal Agent Proxy to ${name ?? 'your agent'}`}>
+				{provider.custom && !name ? 'Any agent that speaks MCP' : subject} works through Personal
+				Agent Proxy as a connector, signed in with its own login.
 			</StepHeading>
 			{!reachable && <NotPublicCallout />}
+			{!PUBLIC && provider.custom && <NotPublicCallout custom />}
 			{command ? (
 				<CopyLine label="Command" value={command} copyLabel="Copy command" />
 			) : (
@@ -273,13 +363,18 @@ function McpAgent({
 					)}
 				</li>
 				<li>
-					{command
-						? `In ${provider.name}, run /mcp and choose personal-agent-proxy to sign in.`
-						: 'Paste the server address and add it.'}
+					{steps?.afterAdd ??
+						(command
+							? `In ${provider.name}, run /mcp and choose personal-agent-proxy to sign in.`
+							: 'Paste the server address and add it.')}
 				</li>
 				<li>
-					{provider.name} opens Personal Agent Proxy to sign in. Choose {provider.name} when asked
-					which agent it works as.
+					{steps?.authorize ?? (
+						<>
+							{provider.name} opens Personal Agent Proxy to sign in. Choose {provider.name} when
+							asked which agent it works as.
+						</>
+					)}
 				</li>
 			</ol>
 			{reachable && (
@@ -287,12 +382,12 @@ function McpAgent({
 					{connected ? (
 						<>
 							<CheckIcon className="size-4" />
-							{provider.name} is signed in as {existing.name}.
+							{subject} is signed in as {existing.name}.
 						</>
 					) : (
 						<>
 							<LoaderCircleIcon className="size-4 animate-spin" />
-							Waiting for {provider.name} to sign in…
+							Waiting for {name ?? 'your agent'} to sign in…
 						</>
 					)}
 				</p>

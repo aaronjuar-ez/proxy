@@ -1,10 +1,5 @@
 import {Navigate, createBrowserRouter, redirect} from 'react-router';
-import {
-	agentCollectionLoader,
-	agentRecordLoader,
-	agentSideLoader,
-	agentToolsLoader,
-} from '@/agent-loaders';
+import {agentCollectionLoader, agentRecordLoader, agentSideLoader} from '@/agent-loaders';
 import {getSignInMethods, type SignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
 import {AgentSide} from '@/components/agent-side';
@@ -21,29 +16,35 @@ import {
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
+	homeLoader,
 	infoLoader,
 	welcomeConnectionLoader,
 	welcomeLoader,
 } from '@/loaders';
 import {ActivityPage} from '@/pages/activity-page';
+import {AddBankPage} from '@/pages/add-bank-page';
 import {AddConnectionPage} from '@/pages/add-connection-page';
-import {AddCustomMcpPage} from '@/pages/add-custom-mcp-page';
+import {AddDatabasePage} from '@/pages/add-database-page';
 import {AddEmailPage} from '@/pages/add-email-page';
+import {AddMcpPage} from '@/pages/add-mcp-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
 import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
-import {AgentToolsPage} from '@/pages/agent/agent-tools-page';
+import {AgentFeedbackPage} from '@/pages/agent/agent-feedback-page';
 import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
 import {AgentRecordPage} from '@/pages/agent/agent-record-page';
+import {AgentToolPage} from '@/pages/agent/agent-tool-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
+import {HomePage} from '@/pages/home-page';
 import {InfoPage} from '@/pages/info-page';
 import {LoginPage} from '@/pages/login-page';
 import {NewAgentPage} from '@/pages/new-agent-page';
+import {SettingsPage} from '@/pages/settings-page';
 import {WelcomeConnectionPage, WelcomePage} from '@/pages/welcome-page';
 
 // The human side's guard: no session sends the user to /login, and back here after. An
@@ -56,12 +57,18 @@ async function humanLoader() {
 	return me;
 }
 
-// A signed-in user returns to their destination. If methods cannot be loaded, fail closed
-// rather than offering a method that may be disabled by the server's authentication mode.
+// A signed-in user has no business on the login page; anything else, an api outage included,
+// shows the form, with Google unless the api says it is not set up.
 async function loginLoader({request}: {request: Request}): Promise<SignInMethods> {
 	const [me, methods] = await Promise.all([getMe(), getSignInMethods()]);
 	if (me.isErr()) {
-		return methods.unwrapOr({password: false, email: false, google: false, dev: false});
+		return methods.unwrapOr({
+			password: false,
+			email: false,
+			google: false,
+			dev: false,
+			needs: {google: false, plaid: false},
+		});
 	}
 
 	const callbackUrl = sanitizeCallbackUrl(new URL(request.url).searchParams.get('callbackUrl'));
@@ -93,15 +100,33 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 	},
 	{
-		path: '/welcome/connections/custom-mcp',
-		loader: welcomeLoader,
-		element: <WelcomePage step="custom-mcp" />,
-		errorElement: <RouteError />,
-	},
-	{
 		path: '/welcome/connections/email',
 		loader: welcomeLoader,
 		element: <WelcomePage step="email" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/postgres',
+		loader: welcomeLoader,
+		element: <WelcomePage step="postgres" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/mysql',
+		loader: welcomeLoader,
+		element: <WelcomePage step="mysql" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/plaid',
+		loader: welcomeLoader,
+		element: <WelcomePage step="plaid" />,
+		errorElement: <RouteError />,
+	},
+	{
+		path: '/welcome/connections/mcp',
+		loader: welcomeLoader,
+		element: <WelcomePage step="mcp" />,
 		errorElement: <RouteError />,
 	},
 	{
@@ -118,11 +143,14 @@ export const router = createBrowserRouter([
 		element: <HumanSide />,
 		errorElement: <RouteError />,
 		children: [
-			{path: '/', element: <Navigate to="/connections" replace />},
+			{path: '/', loader: homeLoader, element: <HomePage />},
 			{path: '/connections', loader: connectionsLoader, element: <ConnectionsPage />},
 			{path: '/connections/new', loader: addConnectionLoader, element: <AddConnectionPage />},
 			{path: '/connections/new/email', element: <AddEmailPage />},
-			{path: '/connections/new/custom-mcp', element: <AddCustomMcpPage />},
+			{path: '/connections/new/postgres', element: <AddDatabasePage dialect="postgres" />},
+			{path: '/connections/new/mysql', element: <AddDatabasePage dialect="mysql" />},
+			{path: '/connections/new/plaid', element: <AddBankPage />},
+			{path: '/connections/new/mcp', element: <AddMcpPage />},
 			{path: '/connections/:id', loader: connectionLoader, element: <ConnectionPage />},
 			{path: '/info', loader: infoLoader, element: <InfoPage />},
 			{path: '/agents', loader: agentsLoader, element: <AgentsPage />},
@@ -130,6 +158,7 @@ export const router = createBrowserRouter([
 			{path: '/agents/:id', loader: agentLoader, element: <AgentPage />},
 			{path: '/agents/:id/setup', loader: agentSetupLoader, element: <AgentSetupPage />},
 			{path: '/activity', loader: activityLoader, element: <ActivityPage />},
+			{path: '/settings', element: <SettingsPage />},
 		],
 	},
 	{
@@ -139,7 +168,9 @@ export const router = createBrowserRouter([
 		errorElement: <RouteError />,
 		children: [
 			{path: '/agent', element: <AgentHomePage />},
-			{path: '/agent/:connectionId/tools', loader: agentToolsLoader, element: <AgentToolsPage />},
+			{path: '/agent/feedback', element: <AgentFeedbackPage />},
+			// A custom MCP server's tool, which has no collection.
+			{path: '/agent/:connectionId/tool/:toolName', element: <AgentToolPage />},
 			{
 				path: '/agent/:connectionId/:collectionId',
 				loader: agentCollectionLoader,

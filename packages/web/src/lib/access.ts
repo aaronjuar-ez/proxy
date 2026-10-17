@@ -7,37 +7,20 @@ import {
 	type Command,
 	type FieldType,
 	type OwnSettings,
+	TOOLS_COLLECTION_ID,
 } from '@proxy/integrations';
-import {formatDate, formatDateTime} from '@/lib/format';
-import {findIntegration, type Integration} from '@/lib/integrations';
+import {counted, formatDate, formatDateTime} from '@/lib/format';
+import {integrationOf, type Integration} from '@/lib/integrations';
 import type {AgentLogin, AuditEntry, Connection, DataRecord} from '@/lib/types';
 
-// The connection's integration, or null for one the catalog no longer has.
-export function integrationOf(connection: {
-	integrationId: string;
-	customMcp?: Connection['customMcp'];
-}): Integration | null {
-	const integration = findIntegration(connection.integrationId);
-	if (!integration) {
-		return null;
-	}
-	if (connection.integrationId !== 'custom-mcp') {
-		return integration;
-	}
-	return {
-		...integration,
-		actions: (connection.customMcp?.tools ?? []).map((tool) => ({
-			id: tool.actionId,
-			label: tool.title ? `${tool.title} (${tool.name})` : tool.name,
-			description: tool.description ?? 'Tool provided by this MCP server',
-			risk: 'high',
-			reachesOthers: true,
-		})),
-	};
-}
+export {integrationOf};
 
-// The integration's name, and the account too once the integration is connected more than once.
+// The name the person gave the connection, else the integration's name, and the account too once
+// the integration is connected more than once.
 export function connectionLabel(connections: Connection[], connection: Connection): string {
+	if (connection.name !== null) {
+		return connection.name;
+	}
 	const name = integrationOf(connection)?.name ?? connection.integrationId;
 	const siblings = connections.filter(
 		(candidate) => candidate.integrationId === connection.integrationId,
@@ -50,7 +33,7 @@ export function connectionLabel(connections: Connection[], connection: Connectio
 
 // The actions an agent without settings of its own gets.
 export function defaultActions(connection: Connection): string[] {
-	return connection.integrationId === 'custom-mcp' ? [] : connection.defaults;
+	return connection.defaults;
 }
 
 // The agent's own settings for a connection, by action; the ones left out follow the default.
@@ -62,7 +45,8 @@ export function ownSettings(agent: AgentLogin, connectionId: string): OwnSetting
 	);
 }
 
-// What the agent can do with the connection: its own settings, else the defaults.
+// What the agent can do with the connection: its own settings, else the defaults, never what the
+// connection's sign-in didn't cover.
 export function actionsFor(agent: AgentLogin, connection: Connection): string[] {
 	const integration = integrationOf(connection);
 	if (!integration) {
@@ -72,6 +56,7 @@ export function actionsFor(agent: AgentLogin, connection: Connection): string[] 
 		integration,
 		defaultActions(connection),
 		ownSettings(agent, connection.id),
+		connection.unavailable,
 	);
 }
 
@@ -116,18 +101,25 @@ export function agentsWithAccess(agents: AgentLogin[], connection: Connection): 
 	);
 }
 
-// The connection and collection an audit entry is about, while both still exist.
+// The connection an audit entry is about, while it still exists, with its integration and the
+// collection the entry names, where the integration has it: a custom MCP server's tools have none.
+export type LocatedEntry = {
+	connection: Connection;
+	integration: Integration;
+	collection?: Collection;
+};
+
 export function locateEntry(
 	connections: Connection[],
-	entry: AuditEntry,
-): {connection: Connection; collection?: Collection} | null {
+	entry: Pick<AuditEntry, 'connectionId' | 'collectionId'>,
+): LocatedEntry | null {
 	const connection = connections.find((candidate) => candidate.id === entry.connectionId);
 	const integration = connection && integrationOf(connection);
-	const collection = integration ? findCollection(integration, entry.collectionId) : undefined;
-	if (!connection) {
+	if (!connection || !integration) {
 		return null;
 	}
-	return {connection, collection};
+	const collection = findCollection(integration, entry.collectionId);
+	return {connection, integration, ...(collection ? {collection} : {})};
 }
 
 export function recordTitle(collection: Collection, record: DataRecord): string {
@@ -146,13 +138,25 @@ const ACTION_VERBS: Partial<Record<string, string>> = {
 	delete: 'Deleted',
 };
 
+// A custom MCP server's tool, run as it is: "Ran Search docs with {"query":"invoices"}", "Tried to
+// run Search docs"; by the tool's name once the server is disconnected.
+function describeToolRun(entry: AuditEntry, integration: Integration | undefined): string {
+	const title =
+		integration?.actions.find((action) => action.id === entry.action)?.label ?? entry.action;
+	if (entry.outcome === 'denied') {
+		return `Tried to run ${title}`;
+	}
+	return entry.query ? `Ran ${title} with ${entry.query}` : `Ran ${title}`;
+}
+
 // "Viewed email “Thursday sync moved?”", "Listed Payment cards", "Searched Email for “invoice”",
 // "Listed Pages in “Companies”", "Tried to list Contacts", and a command's own words: "Sent email
 // “Re: Q3”", "Tried to send email". A list's record title is the record it was opened in.
-export function describeEntry(entry: AuditEntry, collection: Collection | undefined): string {
-	if (entry.collectionId === 'tools') {
-		return `${entry.outcome === 'denied' ? 'Denied' : 'Authorized'} tool call: ${entry.action}`;
+export function describeEntry(entry: AuditEntry, located: LocatedEntry | null): string {
+	if (located?.integration.custom || entry.collectionId === TOOLS_COLLECTION_ID) {
+		return describeToolRun(entry, located?.integration);
 	}
+	const collection = located?.collection;
 	const name = collection?.name ?? entry.collectionId;
 	const singular = collection?.singular ?? 'record';
 	const denied = entry.outcome === 'denied';
@@ -177,6 +181,49 @@ export function describeEntry(entry: AuditEntry, collection: Collection | undefi
 		return `Tried to ${entry.action} ${singular}`;
 	}
 	return `${ACTION_VERBS[entry.action] ?? entry.action} ${record}`;
+}
+
+// The action the request needed: a custom server's tool is its own, anything else the one its
+// collection names for it. Null once the connection is gone.
+export function entryAction(entry: AuditEntry, located: LocatedEntry | null): Action | null {
+	if (!located) {
+		return null;
+	}
+	const {integration, collection} = located;
+	const id = collection ? requiredAction(collection, entry.action) : entry.action;
+	return integration.actions.find((action) => action.id === id) ?? null;
+}
+
+function times(count: number): string {
+	if (count === 1) {
+		return 'once';
+	}
+	return count === 2 ? 'twice' : `${count} times`;
+}
+
+// What an action requested `count` times came to, in the activity log's words: "Viewed 140
+// emails", "Sent 2 emails", "Ran Search docs 3 times". Lists have nothing to count but pages of
+// records, so they say nothing.
+export function describeCount(
+	{action, collectionId}: Pick<AuditEntry, 'action' | 'collectionId'>,
+	count: number,
+	located: LocatedEntry | null,
+): string | null {
+	if (located?.integration.custom || collectionId === TOOLS_COLLECTION_ID) {
+		const title =
+			located?.integration.actions.find((candidate) => candidate.id === action)?.label ?? action;
+		return `Ran ${title} ${times(count)}`;
+	}
+	if (action === 'list') {
+		return null;
+	}
+
+	const records = counted(count, located?.collection?.singular ?? 'record');
+	const command = located?.collection?.commands?.find((candidate) => candidate.id === action);
+	if (command) {
+		return command.done.replace('{}', records);
+	}
+	return `${ACTION_VERBS[action] ?? action} ${records}`;
 }
 
 // What a row shows for a field: secrets down to their last four characters.

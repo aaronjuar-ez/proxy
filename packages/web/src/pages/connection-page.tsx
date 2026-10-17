@@ -1,12 +1,17 @@
-import {CircleCheckIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import {CircleCheckIcon, ListRestartIcon, RefreshCwIcon, UnplugIcon} from 'lucide-react';
+import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
-import {deleteConnection, setConnectionDefaults} from '@/client/connections-client';
+import {
+	deleteConnection,
+	refreshMcpTools,
+	setConnectionDefaults,
+} from '@/client/connections-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {AuditList} from '@/components/audit-list';
+import {SignInToBankAgain} from '@/components/connect-bank-form';
 import {BackButton} from '@/components/back-button';
-import {CustomMcpTools} from '@/components/custom-mcp-tools';
-import {ConnectionAccess} from '@/components/connection-access';
+import {ConnectionAccess, SignInAgain} from '@/components/connection-access';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {IconButton} from '@/components/icon-button';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
@@ -22,6 +27,7 @@ import {
 	ownSettings,
 	describeActions,
 } from '@/lib/access';
+import {signInPath} from '@/lib/integrations';
 import {describeFetchError} from '@/lib/loader-utils';
 import type {AgentLogin} from '@/lib/types';
 import type {connectionLoader} from '@/loaders';
@@ -35,8 +41,8 @@ export function ConnectionPage() {
 	// Set by whatever made the connection: the email dialog, or the api back from a service's sign-in.
 	const [searchParams] = useSearchParams();
 	const added = searchParams.has('added');
-	const reconnected = searchParams.get('oauth') === 'connected';
 	const [disconnecting, setDisconnecting] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration) {
@@ -44,26 +50,57 @@ export function ConnectionPage() {
 	}
 
 	const withAccess = agentsWithAccess(agents, connection);
+	const signInAgain =
+		connection.unavailable.length > 0
+			? signInPath(connection.integrationId, {account: connection.account})
+			: null;
 
 	return (
 		<AppShell
 			title={
 				<>
 					<BackButton to="/connections" label="Back to connections" />
-					<PageTitle detail={connection.account}>
+					<PageTitle
+						detail={
+							connection.name === null
+								? connection.account
+								: `${integration.name} · ${connection.account}`
+						}
+					>
 						<span className="flex items-center gap-2">
 							<IntegrationLogo integration={integration} />
-							{integration.name}
+							{connection.name ?? integration.name}
 						</span>
 					</PageTitle>
 				</>
 			}
 			actions={
-				!integration.builtIn && (
-					<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
-						<UnplugIcon />
-					</IconButton>
-				)
+				<>
+					{integration.custom && (
+						<IconButton
+							label={
+								refreshing
+									? 'Asking the server for its tools'
+									: 'Ask the server for its tools again'
+							}
+							disabled={refreshing}
+							onClick={async () => {
+								setRefreshing(true);
+								const result = await refreshMcpTools(connection.id);
+								setRefreshing(false);
+								setError(result.isErr() ? describeRefreshError(result.error) : null);
+								await revalidator.revalidate();
+							}}
+						>
+							<ListRestartIcon className={refreshing ? 'motion-safe:animate-spin' : undefined} />
+						</IconButton>
+					)}
+					{!integration.builtIn && (
+						<IconButton label="Disconnect" onClick={() => setDisconnecting(true)}>
+							<UnplugIcon />
+						</IconButton>
+					)}
+				</>
 			}
 		>
 			<div className="flex flex-col gap-8">
@@ -73,46 +110,40 @@ export function ConnectionPage() {
 						Connection added successfully
 					</p>
 				)}
-				{reconnected && connection.customMcp?.authType === 'oauth' && (
-					<p
-						role="status"
-						className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2 text-sm text-green-700 dark:text-green-400"
-					>
-						<CircleCheckIcon className="size-4 shrink-0" />
-						OAuth reconnected. All tools are blocked; review and grant them again on each agent’s
-						page.
-					</p>
-				)}
-				<Section title="Permissions">
-					{connection.integrationId === 'custom-mcp' ? (
-						<CustomMcpTools
-							key={connection.id}
-							connection={connection}
-							oauthFailed={searchParams.get('oauth') === 'failed'}
-						/>
-					) : (
-						<ConnectionAccess
-							actions={integration.actions}
-							defaults={defaultActions(connection)}
-							differing={differingAgents(agents, connection.id)}
-							onChange={async (actions) => {
-								const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
-								setError(result.isErr() ? describeFetchError(result.error) : null);
-								await revalidator.revalidate();
-							}}
-						/>
+				<Section
+					title="Permissions"
+					detail={
+						integration.custom
+							? 'The server’s tools, as it last listed them, each allowed on its own'
+							: undefined
+					}
+				>
+					{integration.disclosure && (
+						<p className="text-sm text-muted-foreground md:px-3">{integration.disclosure}</p>
+					)}
+					{integration.custom && integration.actions.length === 0 && (
+						<p className="text-sm text-muted-foreground md:px-3">The server lists no tools.</p>
+					)}
+					<ConnectionAccess
+						actions={integration.actions}
+						defaults={defaultActions(connection)}
+						unavailable={connection.unavailable}
+						differing={differingAgents(agents, connection.id)}
+						onChange={async (actions) => {
+							const result = await setConnectionDefaults(connection.id, defaultsOnOrOff(actions));
+							setError(result.isErr() ? describeFetchError(result.error) : null);
+							await revalidator.revalidate();
+						}}
+					/>
+					{signInAgain && <SignInAgain href={signInAgain} className="md:px-3" />}
+					{connection.integrationId === 'plaid' && (
+						<SignInToBankAgain connectionId={connection.id} className="md:px-3" />
 					)}
 					{error && <p className="mt-2 text-sm text-destructive md:px-3">{error}</p>}
 				</Section>
 				<Section title="Agents with access">
 					<RowList>
-						{withAccess.length === 0 && (
-							<EmptyRows>
-								{connection.customMcpUnavailable
-									? 'Agent access is unavailable until tool metadata loads.'
-									: 'No agent can reach this connection.'}
-							</EmptyRows>
-						)}
+						{withAccess.length === 0 && <EmptyRows>No agent can reach this connection.</EmptyRows>}
 						{withAccess.map((agent) => (
 							<Row
 								key={agent.id}
@@ -179,6 +210,17 @@ export function ConnectionPage() {
 			/>
 		</AppShell>
 	);
+}
+
+// What asking a custom MCP server for its tools again says when it fails.
+function describeRefreshError(error: FetchError): string {
+	if (error.kind === 'http' && error.status === 422) {
+		return 'The server turned the sign-in down. Disconnect it and connect it again.';
+	}
+	if (error.kind === 'http' && error.status === 502) {
+		return 'The server could not be reached. Try again in a moment.';
+	}
+	return describeFetchError(error);
 }
 
 // How many agents, revoked ones left out, have a setting of their own for each action.

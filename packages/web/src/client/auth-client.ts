@@ -31,11 +31,15 @@ const signInMethodsSchema = z.object({
 	email: z.boolean(),
 	google: z.boolean(),
 	dev: z.boolean(),
+	needs: z.object({google: z.boolean(), plaid: z.boolean()}),
 });
 
 export type SignInMethods = z.infer<typeof signInMethodsSchema>;
 
-/** The sign-in methods allowed by the server's configured authentication mode. */
+/**
+ * The sign-in methods the api has set up besides the magic link, which always is, and which of
+ * what integrations need it has (`needs`), for the catalog.
+ */
 export function getSignInMethods() {
 	return httpRequest('/auth/methods', {method: 'GET'}, {schema: signInMethodsSchema});
 }
@@ -80,7 +84,7 @@ export async function signOut(): Promise<void> {
 	window.location.reload();
 }
 
-/** Dev only: creates a throwaway user and signs in as them. The api 404s outside development. */
+/** Dev only: signs in as the dev user, made on its first sign-in. The api 404s outside development. */
 export function devLogin() {
 	return httpRequest('/auth/dev/login', {
 		method: 'POST',

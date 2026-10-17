@@ -1,10 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Err, Ok} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr} from '@proxy/utils';
-
-const decryptSecret = mock();
-mock.module('../utils/secret-crypto', () => ({decryptSecret}));
+import {ApiErr, type ApiError} from '@proxy/utils';
 
 const listAgents = mock();
 const getAgent = mock();
@@ -17,11 +14,14 @@ const isProviderConflict = mock(() => false);
 
 mock.module('@proxy/db/agent', () => ({listAgents, getAgent, createAgent, updateAgent, deleteAgent, setAgentGrants, isUsernameConflict, isProviderConflict}));
 
-const getConnection = mock();
 const getConnectionWithCredential = mock();
-const setCustomMcpGrants = mock();
 
-mock.module('@proxy/db/connection', () => ({getConnection, getConnectionWithCredential, setCustomMcpGrants}));
+mock.module('@proxy/db/connection', () => ({getConnectionWithCredential}));
+
+// Readable stand-ins for encryption, so a test can write the credential it means.
+mock.module('../utils/secret-crypto', () => ({
+	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
+}));
 
 const requireUserOrgId = mock();
 
@@ -49,7 +49,9 @@ beforeEach(() => {
 	createAgent.mockResolvedValue(Ok(agentRow));
 	updateAgent.mockResolvedValue(Ok(true));
 	setAgentGrants.mockResolvedValue(Ok(undefined));
-	getConnection.mockResolvedValue(Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), defaults: []}));
+	getConnectionWithCredential.mockResolvedValue(
+		Ok({id: 'conn-1', integrationId: 'email', account: 'alex@example.com', createdAt: new Date(), tools: null, name: null, defaults: [], credential: 'enc:{}'}),
+	);
 	isUsernameConflict.mockReturnValue(false);
 	isProviderConflict.mockReturnValue(false);
 });
@@ -88,6 +90,38 @@ describe('handleCreateAgentRoute', () => {
 		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'other'}));
 
 		expect(result.unwrapErr().kind).toBe('parse_error');
+	});
+
+	test('names a custom agent as the person did, and any number of them', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: '  Cursor '}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Zed'}));
+
+		expect(createAgent.mock.calls[0]?.[0]).toMatchObject({providerId: 'custom', name: 'Cursor'});
+		expect(createAgent.mock.calls[0]?.[0].username).toMatch(/^cursor-[a-z0-9]{4}$/);
+		expect(createAgent.mock.calls[1]?.[0]).toMatchObject({providerId: 'custom', name: 'Zed'});
+	});
+
+	test('needs a custom agent named, and a provider named by itself', async () => {
+		const {handleCreateAgentRoute} = await import('./route');
+		const unnamed = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: ' '}));
+		const tooLong = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'x'.repeat(61)}));
+		await handleCreateAgentRoute(makeRequest({}, {providerId: 'dot', name: 'Something else'}));
+
+		expect(unnamed.unwrapErr().kind).toBe('validation_error');
+		expect(tooLong.unwrapErr().kind).toBe('validation_error');
+		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(createAgent.mock.calls[0]?.[0].name).toBe('Dots');
+	});
+
+	test('refuses a custom agent named as one the organization has', async () => {
+		createAgent.mockResolvedValue(Err(ApiErr.dbError(new Error('P2002'))));
+		isProviderConflict.mockReturnValue(true);
+
+		const {handleCreateAgentRoute} = await import('./route');
+		const result = await handleCreateAgentRoute(makeRequest({}, {providerId: 'custom', name: 'Cursor'}));
+
+		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: 'An agent named Cursor already exists'});
 	});
 
 	test('refuses a second login for the same provider', async () => {
@@ -152,46 +186,29 @@ describe('handleSetAgentGrantsRoute', () => {
 		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 
+	test("refuses turning on an action the connection's sign-in didn't cover, but not turning it off", async () => {
+		const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid'], email: 'alex@example.com'};
+		getConnectionWithCredential.mockResolvedValue(
+			Ok({id: 'conn-1', integrationId: 'google', account: 'alex@example.com', createdAt: new Date(), defaults: [], credential: `enc:${JSON.stringify(credential)}`}),
+		);
+
+		const {handleSetAgentGrantsRoute} = await import('./route');
+		const on = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {readFiles: true}}));
+		expect(on.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
+		expect(setAgentGrants).not.toHaveBeenCalled();
+
+		const off = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {readFiles: false}}));
+		expect(off.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {readFiles: false}});
+	});
+
 	test('refuses a connection outside the organization', async () => {
-		getConnection.mockResolvedValue(Ok(null));
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
 
 		const {handleSetAgentGrantsRoute} = await import('./route');
 		const result = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {read: true}}));
 
 		expect(result.unwrapErr().kind).toBe('not_found');
 		expect(setAgentGrants).not.toHaveBeenCalled();
-	});
-});
-
-describe('custom MCP grant routes', () => {
-	const params = {agentId: 'agent-1', connectionId: 'conn-1'};
-	const tool = {name: 'search', inputSchema: {type: 'object'}};
-	const row = {id: 'conn-1', integrationId: 'custom-mcp', credential: 'encrypted-snapshot', defaults: []};
-	beforeEach(() => {
-		getConnection.mockResolvedValue(Ok(row));
-		getConnectionWithCredential.mockResolvedValue(Ok(row));
-		decryptSecret.mockReturnValue(Ok(JSON.stringify({version: 1, url: 'https://mcp.example.com/mcp', tools: [tool]})));
-		setCustomMcpGrants.mockResolvedValue(Ok(true));
-	});
-	test('new permissions use snapshot-guarded transaction rather than generic grants', async () => {
-		const {toolActionId} = await import('../connections/custom-mcp/store');
-		const {handleSetAgentGrantsRoute} = await import('./route');
-		const actions = {[toolActionId(tool)]: true};
-		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions}))).isOk()).toBe(true);
-		expect(setCustomMcpGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', previous: 'encrypted-snapshot', actions});
-		expect(setAgentGrants).not.toHaveBeenCalled();
-	});
-	test('cannot grant a stale tool but may revoke it', async () => {
-		const {handleSetAgentGrantsRoute} = await import('./route');
-		const stale = `mcp:${'a'.repeat(64)}`;
-		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[stale]: true}}))).unwrapErr().kind).toBe('validation_error');
-		expect(setCustomMcpGrants).not.toHaveBeenCalled();
-		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[stale]: null}}))).isOk()).toBe(true);
-	});
-	test('concurrent snapshot changes cause conflict, never a stale approval', async () => {
-		const {toolActionId} = await import('../connections/custom-mcp/store');
-		const {handleSetAgentGrantsRoute} = await import('./route');
-		setCustomMcpGrants.mockResolvedValue(Ok(false));
-		expect((await handleSetAgentGrantsRoute(makeRequest(params, {actions: {[toolActionId(tool)]: true}}))).unwrapErr().kind).toBe('conflict');
 	});
 });

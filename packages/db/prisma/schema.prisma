@@ -27,14 +27,17 @@ model User {
   email         String    @unique
   emailVerified DateTime?
   image         String?
+  // When they accepted the terms of service and the privacy policy, by signing up past the notice
+  // on the sign-in page. None for an account from before the notice, until it is asked to accept.
+  termsAcceptedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  accounts               Account[]
-  sessions               Session[]
-  orgMembers             OrgMember[]
-  customMcpOAuthAttempts CustomMcpOAuthAttempt[]
+  accounts     Account[]
+  sessions     Session[]
+  orgMembers   OrgMember[]
+  writeTargets WriteTarget[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account.
@@ -90,20 +93,24 @@ model VerificationToken {
 // Every user gets one organization at sign-up, for when data is shared between people. Nothing
 // reads it yet.
 model Organization {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
   // When the welcome flow was finished or skipped; until then the web app shows it instead of the app.
   onboardedAt DateTime?
+  // Experiments on for the organization, by id (EXPERIMENTS in @proxy/utils; an id no longer there
+  // is ignored), and an insider has all of them. Both set from the internal admin, never in the app.
+  experiments String[] @default([])
+  insider     Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  members                OrgMember[]
-  connections            Connection[]
-  agents                 Agent[]
-  audit                  AuditEntry[]
-  customMcpOAuthAttempts CustomMcpOAuthAttempt[]
+  members     OrgMember[]
+  connections Connection[]
+  agents      Agent[]
+  audit       AuditEntry[]
+  feedback    AgentFeedback[]
 }
 
 model OrgMember {
@@ -126,27 +133,57 @@ model OrgMember {
 // also has one built-in Information connection, made with it, whose records live in
 // Personal Agent Proxy.
 model Connection {
-  id                             String    @id @default(cuid())
-  orgId                          String
-  integrationId                  String
+  id            String  @id @default(cuid())
+  orgId         String
+  integrationId String
   // The account as the provider names it, such as an email address; the organization's name for
   // Information.
-  account                        String
+  account       String
+  // The provider's own id for the account, which stays as its address changes: Google's `sub`.
+  // None where the provider gives none, or for a connection from before it was kept.
+  providerAccountId String?
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for Information.
-  credential                     String?
-  // A refresh is never retried after its owner disappears: a rotating token may already be spent.
-  customMcpRefreshLeaseId        String?
-  customMcpRefreshLeaseExpiresAt DateTime?
+  credential    String?
+  // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
+  // as JSON: what agents can be allowed with it. Null for every other integration.
+  tools         String?
+  // What the person called the connection, where they named it: a custom MCP server is named when
+  // it is connected. Null for every other integration, which shows as its integration.
+  name          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  defaults    ConnectionDefault[]
-  infoRecords InfoRecord[]
-  agentGrants AgentGrant[]
+  org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  defaults     ConnectionDefault[]
+  infoRecords  InfoRecord[]
+  agentGrants  AgentGrant[]
+  writeTargets WriteTarget[]
 
   @@index([orgId])
+  @@index([integrationId, providerAccountId])
+}
+
+// Where the home page's widgets write when there is more than one place: the calendar a new event
+// goes in, the mailbox an email goes out from. The last place each person wrote to, per
+// collection; none until they first write, and gone with the connection.
+model WriteTarget {
+  id           String  @id @default(cuid())
+  userId       String
+  // The collection written to, as the catalog names it: `events`, `emails`.
+  collectionId String
+  connectionId String
+  // Where in the connection, in a nested collection: a calendar's id.
+  parent       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, collectionId])
+  @@index([connectionId])
 }
 
 // An action of the connection that agents get by default, such as `read` or `archive` on a
@@ -185,7 +222,8 @@ model InfoRecord {
 model Agent {
   id           String    @id @default(cuid())
   orgId        String
-  // One of the catalog's AGENT_PROVIDERS; an organization has one login per provider.
+  // One of the catalog's AGENT_PROVIDERS. A provider's login is named by the provider, so an
+  // organization has one per provider; custom agents are named by the person, one per name.
   providerId   String
   name         String
   username     String    @unique
@@ -202,7 +240,7 @@ model Agent {
   oauthCodes  OAuthCode[]
   oauthGrants OAuthGrant[]
 
-  @@unique([orgId, providerId])
+  @@unique([orgId, providerId, name])
   @@index([orgId])
 }
 
@@ -251,12 +289,14 @@ enum AuditVia {
   mcp
 }
 
-// One request an agent made, allowed or denied. Plain ids rather than relations, so the entry
-// stays when the agent or the connection is gone.
+// One request an agent made, allowed or denied, or one thing Personal Agent Proxy did itself for a
+// person, as the home page's widgets write. Plain ids rather than relations, so the entry stays
+// when the agent or the connection is gone.
 model AuditEntry {
   id           String       @id @default(cuid())
   orgId        String
-  agentId      String
+  // None for what Personal Agent Proxy did itself.
+  agentId      String?
   connectionId String
   collectionId String
   // list, view, create, update or delete, or one of the collection's commands, such as `send`.
@@ -273,6 +313,30 @@ model AuditEntry {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
+}
+
+// What an agent told the makers of Personal Agent Proxy, such as a tool that didn't work as it
+// expected: sent with the MCP server's send_feedback or the agent pages' feedback form, and read
+// by us, never shown in the app. Plain ids, like the activity log, so it stays when the agent or
+// the connection is gone; it goes with the organization.
+model AgentFeedback {
+  id           String   @id @default(cuid())
+  orgId        String
+  agentId      String
+  // The agent's AGENT_PROVIDERS id, such as `claude`, kept beside the login it came from.
+  providerId   String
+  message      String
+  // The connection and the tool it is about, where the agent named them.
+  connectionId String?
+  tool         String?
+  via          AuditVia
+
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([createdAt])
 }
 
 // An MCP client that registered itself to sign agents in, such as Claude or ChatGPT (OAuth
@@ -337,22 +401,4 @@ model OAuthGrant {
 
   @@index([clientId])
   @@index([agentId])
-}
-
-// A browser OAuth handshake, bound to its signed-in user and organization. State is a SHA-256;
-// payload contains only an encrypted PKCE verifier and discovered provider configuration.
-model CustomMcpOAuthAttempt {
-  stateHash String   @id
-  userId    String
-  orgId     String
-  payload   String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([orgId])
-  @@index([expiresAt])
 }

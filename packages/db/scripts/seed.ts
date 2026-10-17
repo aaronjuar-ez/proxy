@@ -204,6 +204,35 @@ const tracker = await connect({
 	defaults: ['read', 'create'],
 });
 
+// Made-up tokens, like Linear's: opening a file, an email, an event or a contact fails.
+const googleAccount = await connect({
+	integrationId: 'google',
+	account: 'demo.user@gmail.com',
+	credential: encrypt(
+		JSON.stringify({
+			accessToken: 'demo-access-token',
+			refreshToken: null,
+			expiresAt: null,
+			scopes: [
+				'openid',
+				'https://www.googleapis.com/auth/userinfo.email',
+				'https://www.googleapis.com/auth/gmail.modify',
+				'https://www.googleapis.com/auth/gmail.send',
+				'https://www.googleapis.com/auth/calendar.events',
+				'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+				'https://www.googleapis.com/auth/drive',
+				'https://www.googleapis.com/auth/documents',
+				'https://www.googleapis.com/auth/spreadsheets',
+				'https://www.googleapis.com/auth/presentations',
+				'https://www.googleapis.com/auth/contacts',
+			],
+			email: 'demo.user@gmail.com',
+		}),
+	),
+	daysAgo: 1,
+	defaults: ['readEmails', 'readEvents', 'writeEvents', 'readFiles'],
+});
+
 const connections: [Connection, ...Connection[]] = [
 	info,
 	personal,
@@ -213,6 +242,7 @@ const connections: [Connection, ...Connection[]] = [
 	meetings,
 	wiki,
 	tracker,
+	googleAccount,
 ];
 
 // ---- Information records --------------------------------------------------------------------
@@ -327,6 +357,7 @@ const agents = [
 			grant(work, {write: true, send: true}),
 			grant(receipts, {read: true}),
 			grant(newsletters, {read: false}),
+			grant(googleAccount, {createFiles: true, editFiles: true}),
 		],
 	}),
 	// Reads the cards no agent gets by default and files receipts; kept out of the work mailbox.
@@ -359,6 +390,7 @@ const agents = [
 		grants: [
 			grant(personal, {trash: true, write: false}),
 			grant(work, {mark: true, flag: true, archive: true}),
+			grant(googleAccount, {readEmails: true, markEmails: true, archiveEmails: true}),
 			grant(info, {readAddresses: false, readNotes: false}),
 			grant(meetings, {readTranscripts: false}),
 			grant(wiki, {read: false}),
@@ -386,7 +418,7 @@ function requestsOf(collection: Collection): [string, ...string[]] {
 	];
 }
 
-// Titles for the mailboxes' emails; Information's come from the records seeded above.
+// Titles for the mailboxes' emails, and Gmail's; Information's come from the records seeded above.
 const EMAIL_TITLES: [string, ...string[]] = [
 	'Your order has shipped',
 	'Q3 planning — agenda',
@@ -426,6 +458,22 @@ const ISSUE_TITLES: [string, ...string[]] = [
 	'Slow search on large workspaces',
 ];
 
+// Titles for Google Drive's files.
+const FILE_TITLES: [string, ...string[]] = [
+	'Budget 2027',
+	'Launch plan',
+	'Board deck — October',
+	'Contracts',
+	'Trip itinerary',
+];
+
+// The ranges agents read and write in spreadsheets.
+const RANGE_TITLES: [string, ...string[]] = [
+	"'Q1 Sales'!A1:F20",
+	'Budget!B2:B14',
+	"'Trip costs'!A1:D9",
+];
+
 // What agents search for.
 const SEARCHES: [string, ...string[]] = [
 	'invoice',
@@ -437,7 +485,7 @@ const SEARCHES: [string, ...string[]] = [
 ];
 
 function recordTitle(connection: Connection, collectionId: string): string {
-	if (connection.integrationId === 'email') {
+	if (connection.integrationId === 'email' || collectionId === 'emails') {
 		return pick(EMAIL_TITLES);
 	}
 
@@ -451,6 +499,14 @@ function recordTitle(connection: Connection, collectionId: string): string {
 
 	if (connection.integrationId === 'linear') {
 		return pick(ISSUE_TITLES);
+	}
+
+	if (collectionId === 'ranges') {
+		return pick(RANGE_TITLES);
+	}
+
+	if (connection.integrationId === 'google') {
+		return pick(FILE_TITLES);
 	}
 
 	const titles = (INFO_RECORDS[collectionId] ?? []).map((values) => values.label ?? values.title);

@@ -3,16 +3,31 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgent, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
 import {logAgentRequest} from '@proxy/db/audit';
-import {listConnections, type ConnectionRow} from '@proxy/db/connection';
-import {allowedTools, applies, effectiveActions, findCollection, findIntegration, findTool, type Collection, type Condition, type OwnSettings, type Tool} from '@proxy/integrations';
+import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
+import {
+	allowedTools,
+	applies,
+	effectiveActions,
+	findCollection,
+	findTool,
+	type Collection,
+	type CollectionTool,
+	type Integration,
+	type Condition,
+	type McpTool,
+	type OwnSettings,
+	type ServerTool,
+	type Tool,
+	TOOLS_COLLECTION_ID,
+} from '@proxy/integrations';
 
+import {callCustomTool} from '../connections/custom/custom-mcp';
+import {unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Connector, DataRecord, RecordPage, RecordTarget, RecordValues} from '../records/connector';
 import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
-import {parseToolParams} from './tool-params';
-import {CUSTOM_MCP} from '../connections/custom-mcp/store';
-import {customActions, listCustomAgentTools, runCustomAgentTool, type UpstreamAgentTool} from '../connections/custom-mcp/agent-tools';
-import type {UpstreamResult} from '../connections/custom-mcp/client';
+import {integrationOf} from '../utils/connection-actions';
+import {isPlainObject, parseToolParams} from './tool-params';
 
 /**
  * The agent side, whichever way an agent comes in: the connections it can use, the tools it has
@@ -26,32 +41,34 @@ export type AgentConnection = {
 	account: string;
 	// The actions the agent can take with the connection.
 	actions: string[];
+	// A custom MCP server's tools the agent may run, as the server describes them; null for every
+	// other integration.
+	tools: McpTool[] | null;
+	// What the person called the connection, where they named it.
+	name: string | null;
 };
 
-/** A page of records from a list, or the record a tool opened, wrote or ran on: null once it is gone. */
-export type AgentTool = Tool | UpstreamAgentTool;
-export type ToolResult = RecordPage | {record: DataRecord | null} | {upstream: UpstreamResult};
+/** A page of records from a list, the record a tool opened, wrote or ran on (null once it is gone), or what a custom server's tool answered. */
+export type ToolResult = RecordPage | {record: DataRecord | null} | {text: string};
 
-export function actionsOf(agent: AgentRow, connection: ConnectionRow): string[] {
-	if (connection.integrationId === CUSTOM_MCP) return customActions(agent, connection);
-	const integration = findIntegration(connection.integrationId);
-	if (!integration) {
-		return [];
-	}
+// How much of a custom tool's params the activity log keeps.
+const MAX_LOGGED_PARAMS = 200;
+
+/** What the agent can do with the connection, none of the `unavailable` actions its sign-in didn't cover among them. */
+export function actionsOf(agent: AgentRow, connection: ConnectionRow, integration: Integration, unavailable: string[]): string[] {
 	const own: OwnSettings = Object.fromEntries(agent.grants.filter((grant) => grant.connectionId === connection.id).map((grant) => [grant.actionId, grant.allowed]));
 	return effectiveActions(
 		integration,
 		connection.defaults.map((stored) => stored.actionId),
 		own,
+		unavailable,
 	);
 }
 
 export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await getAgent(signedIn.orgId, signedIn.agentId));
-		const current = $(requirePresent(agent, ApiErr.unauthenticated()));
-		if (current.revokedAt) return $(Err(ApiErr.unauthenticated()));
-		return current;
+		return $(requirePresent(agent, ApiErr.unauthenticated()));
 	});
 }
 
@@ -59,32 +76,43 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<{agent: {id: string; providerId: string; name: string}; connections: AgentConnection[]}, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		const connections = $(await listConnections(signedIn.orgId))
-			.map((connection) => ({
-				id: connection.id,
-				integrationId: connection.integrationId,
-				account: connection.account,
-				actions: actionsOf(agent, connection),
-			}))
+		const connections = $(await listConnectionsWithCredential(signedIn.orgId))
+			.flatMap((connection) => {
+				const integration = integrationOf(connection);
+				if (!integration) {
+					return [];
+				}
+				const actions = actionsOf(agent, connection, integration, unavailableActions(connection));
+				return [
+					{
+						id: connection.id,
+						integrationId: connection.integrationId,
+						account: connection.account,
+						actions,
+						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? null,
+						name: connection.name,
+					},
+				];
+			})
 			.filter(({actions}) => actions.length > 0);
 		return {agent: {id: agent.id, providerId: agent.providerId, name: agent.name}, connections};
 	});
 }
 
 /** The tools the agent has with one connection: none for one it can't use. */
-export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<AgentTool[], ApiError>> {
+export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<Tool[], ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		const {connection, integration} = $(await loadConnection(signedIn.orgId, connectionId));
-		if (connection.integrationId === CUSTOM_MCP) return $(listCustomAgentTools(agent, connection));
-		return allowedTools(integration, actionsOf(agent, connection));
+		return allowedTools(integration, actionsOf(agent, connection, integration, unavailableActions(connection)));
 	});
 }
 
 // Who runs a tool and which way it came in: the web app's agent pages, or the MCP server.
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp'};
 
-type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: Tool};
+// `actions` are what the agent can do with the connection, and `refuse` why it can't do another.
+type ToolRun = {caller: AgentCaller; target: RecordTarget; connector: Connector; tool: CollectionTool; actions: string[]; refuse: (actionId: string) => ApiError};
 
 function recordTitle(collection: Collection, values: RecordValues): string | null {
 	return values[collection.titleField]?.trim() || null;
@@ -108,7 +136,8 @@ function log(run: ToolRun, outcome: 'allowed' | 'denied', title: string | null, 
 /**
  * Runs one of the connection's tools with `params`, as its input schema describes them. A
  * connection outside the organization, or a tool its integration doesn't have, is not found and
- * not logged; a tool whose action the agent doesn't have is refused and logged as denied.
+ * not logged; a tool whose action the agent doesn't have is refused and logged as denied, saying
+ * how to allow it where the connection's sign-in didn't cover the action.
  * `readOnly` limits the run to tools that only read, or only to those that change something, as
  * the MCP server's `read` and `run` do; any other is refused, unlogged.
  */
@@ -116,26 +145,98 @@ export function runAgentTool(caller: AgentCaller, connectionId: string, toolName
 	return Do(async ($) => {
 		const agent = $(await requireAgent(caller.agent));
 		const {connection, integration, connector} = $(await loadConnection(caller.agent.orgId, connectionId));
-		if (connection.integrationId === CUSTOM_MCP) return $(await runCustomAgentTool(caller, agent, connection, toolName, params, options));
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
-		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
-		const run: ToolRun = {caller, target: {connection, collection}, connector, tool};
 		if (options.readOnly !== undefined && options.readOnly !== tool.readOnly) {
 			return $(Err(ApiErr.validationError(tool.readOnly ? `${tool.name} only reads: use read for it` : `${tool.name} changes something: use run for it`)));
 		}
+		if (tool.kind === 'call') {
+			return $(await runServerTool(caller, agent, connection, integration, tool, params));
+		}
+
+		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
+		const unavailable = unavailableActions(connection);
+		const run: ToolRun = {
+			caller,
+			target: {connection, collection},
+			connector: $(requirePresent(connector, ApiErr.notFound('tool', toolName))),
+			tool,
+			actions: actionsOf(agent, connection, integration, unavailable),
+			refuse: (actionId) => refusal(integration, agent, connection, unavailable, actionId),
+		};
 
 		// A list's search is logged, a refused one's too, so its params are read first.
 		const listParams = tool.kind === 'list' ? $(parseToolParams(tool, params)) : null;
-		if (!actionsOf(agent, connection).includes(tool.action)) {
+		if (!run.actions.includes(tool.action)) {
 			$(await log(run, 'denied', null, searchOf(listParams)));
-			return $(Err(ApiErr.forbidden()));
+			return $(Err(run.refuse(tool.action)));
 		}
 		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
 	});
 }
 
+// Why an action is refused: the sign-in, naming the action it didn't cover, where signing in again
+// would allow it as the agent's settings stand; else plainly forbidden.
+function refusal(integration: Integration, agent: AgentRow, connection: ConnectionRow, unavailable: string[], actionId: string): ApiError {
+	if (!actionsOf(agent, connection, integration, []).includes(actionId)) {
+		return ApiErr.forbidden();
+	}
+	const required = integration.actions.find((action) => action.id === actionId)?.requires;
+	return unavailableError(integration, unavailable.includes(actionId) || required === undefined ? actionId : required);
+}
+
 function searchOf(params: Record<string, string> | null): string | null {
 	return params?.search?.trim() || null;
+}
+
+// What the activity log keeps of a custom tool's params: the JSON, cut short.
+function loggedParams(args: Record<string, unknown>): string | null {
+	if (Object.keys(args).length === 0) {
+		return null;
+	}
+	const json = JSON.stringify(args);
+	if (json.length <= MAX_LOGGED_PARAMS) {
+		return json;
+	}
+	return `${json.slice(0, MAX_LOGGED_PARAMS - 1)}…`;
+}
+
+// A custom server's tool, called as it is: its params go to the server as given, which checks
+// them against its own schema, and its answer comes back as text. Logged by the tool's name, with
+// its params, allowed or denied.
+function runServerTool(
+	caller: AgentCaller,
+	agent: AgentRow,
+	connection: ConnectionRow & {credential: string | null},
+	integration: Integration,
+	tool: ServerTool,
+	params: unknown,
+): Promise<Result<ToolResult, ApiError>> {
+	return Do(async ($) => {
+		const args = params ?? {};
+		if (!isPlainObject(args)) {
+			return $(Err(ApiErr.validationError(`${tool.name} takes an object of params`)));
+		}
+		const logged = loggedParams(args);
+		const logRun = (outcome: 'allowed' | 'denied') =>
+			logAgentRequest({
+				orgId: caller.agent.orgId,
+				agentId: caller.agent.agentId,
+				connectionId: connection.id,
+				collectionId: TOOLS_COLLECTION_ID,
+				action: tool.name,
+				recordTitle: null,
+				query: logged,
+				outcome,
+				via: caller.via,
+			});
+		if (!actionsOf(agent, connection, integration, unavailableActions(connection)).includes(tool.action)) {
+			$(await logRun('denied'));
+			return $(Err(ApiErr.forbidden()));
+		}
+		const text = $(await callCustomTool(connection, tool.name, args));
+		$(await logRun('allowed'));
+		return {text};
+	});
 }
 
 function execute(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
@@ -194,9 +295,27 @@ function get(run: ToolRun, recordId: string): Promise<Result<ToolResult, ApiErro
 	});
 }
 
+// A write needs the action of each field holding anything, before it or after it, beyond its own:
+// inviting guests to an event, or changing one they are invited to, needs Invite guests. One
+// without it is refused and logged as denied, with the record's title where there is one.
+function requireFieldActions(run: ToolRun, values: RecordValues, before: RecordValues = {}): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const missing = run.target.collection.fields.find(
+			(field) => field.action !== undefined && !run.actions.includes(field.action) && [values[field.key], before[field.key]].some((value) => (value ?? '').trim() !== ''),
+		);
+		if (missing?.action === undefined) {
+			return;
+		}
+		$(await log(run, 'denied', recordTitle(run.target.collection, {...before, ...values})));
+		return $(Err(run.refuse(missing.action)));
+	});
+}
+
 function create(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
-		const record = $(await run.connector.create(run.target, $(parseRecordValues(run.target.collection, fieldsOf(params))), params.parent ?? null));
+		const values = $(parseRecordValues(run.target.collection, fieldsOf(params)));
+		$(await requireFieldActions(run, values));
+		const record = $(await run.connector.create(run.target, values, params.parent ?? null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
 		return {record};
 	});
@@ -211,7 +330,8 @@ function update(run: ToolRun, params: Record<string, string>): Promise<Result<To
 		$(requireApplies(run.tool.where, before));
 		const current = Object.fromEntries(collection.fields.filter((field) => !field.system).map((field) => [field.key, before.values[field.key] ?? '']));
 		const values = $(parseRecordValues(collection, {...current, ...fieldsOf(params)}));
-		const record = $(await run.connector.update(run.target, recordId, values));
+		$(await requireFieldActions(run, values, before.values));
+		const record = $(await run.connector.update(run.target, recordId, values, before));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
 		return {record};
 	});

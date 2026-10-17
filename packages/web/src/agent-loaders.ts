@@ -2,12 +2,7 @@ import type {FetchError} from '@proxy/utils';
 import {redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {toolName} from '@proxy/integrations';
-import {
-	getAgentMe,
-	listAgentTools,
-	runAgentListTool,
-	runAgentRecordTool,
-} from '@/client/agent-client';
+import {getAgentMe, runAgentListTool, runAgentRecordTool} from '@/client/agent-client';
 import type {DataRecord} from '@/lib/types';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/me-client';
 import {fetchErrorToResponse} from '@/lib/loader-utils';
@@ -72,8 +67,4 @@ export async function agentRecordLoader({params}: {params: Params}): Promise<Out
 		return {kind: 'missing'};
 	}
 	return {kind: 'ok', value: record};
-}
-
-export async function agentToolsLoader({params}: {params: {connectionId?: string}}) {
-	return unwrapAgentResult(await listAgentTools(params.connectionId ?? ''));
 }
